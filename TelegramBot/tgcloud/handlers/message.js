@@ -98,7 +98,7 @@ async function responseFor(message) {
           `Expires: ${new Date(result.expires_at).toISOString()}`,
           '',
           `If you recognize this request, send /confirm ${userCode}. Otherwise send /deny ${userCode}.`,
-        ].join('\\n');
+        ].join('\n');
       } catch {
         return 'No valid pending request was found, or this Telegram account is not linked. Check the code and try again.';
       }
