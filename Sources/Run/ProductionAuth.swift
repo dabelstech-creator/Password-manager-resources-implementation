@@ -649,6 +649,11 @@ func registerProductionAuthRoutes(_ app: Application) {
             .filter(\.$telegramUserID == challenge.telegramUserID).first(), existing.userID != user.id {
             throw Abort(.conflict, reason: "This Telegram account is already linked to another AuthPlatform account")
         }
+        if let oidcIdentity = try await TelegramOIDCIdentity.query(on: req.db)
+            .filter(\.$telegramSubject == challenge.telegramUserID).first(),
+           oidcIdentity.userID != user.id {
+            throw Abort(.conflict, reason: "Telegram sign-in is already associated with another AuthPlatform account; automatic account merging is disabled")
+        }
         let link = TelegramLink(telegramUserID: challenge.telegramUserID, userID: user.id!)
         try await link.save(on: req.db)
         challenge.claimedAt = Date()
