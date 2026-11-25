@@ -166,16 +166,10 @@ func registerTelegramOIDCRoutes(_ app: Application) {
             let identity = TelegramOIDCIdentity(subject: telegramSubject, userID: user.id!)
             try await identity.save(on: req.db)
         } else {
-            // The legacy auth_users.workos_subject column is non-nullable.
-            // This namespaced internal value is not a WorkOS credential/subject.
-            let internalSubject = "telegram-oidc:" + telegramSubject
-            if let existing = try await AuthUser.query(on: req.db)
-                .filter(\.$workosSubject == internalSubject).first() {
-                user = existing
-            } else {
-                user = AuthUser(workosSubject: internalSubject)
-                try await user.save(on: req.db)
-            }
+            // Telegram-only accounts have no WorkOS subject. Provider identity
+            // is stored in telegram_oidc_identities, not overloaded into auth_users.
+            user = AuthUser(telegramOnly: true)
+            try await user.save(on: req.db)
             let identity = TelegramOIDCIdentity(subject: telegramSubject, userID: user.id!)
             try await identity.save(on: req.db)
         }
