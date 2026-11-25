@@ -350,31 +350,30 @@ private func requireDatabase() throws {
 
 private func currentUser(_ req: Request) async throws -> AuthUser {
     try requireDatabase()
-    guard let clientID = AuthConfig.workOSClientID,
-          let token = req.headers.bearerAuthorization?.token else {
-        throw Abort(.unauthorized, reason: "A WorkOS AuthKit bearer token is required")
+    guard let token = req.headers.bearerAuthorization?.token else {
+        throw Abort(.unauthorized, reason: "A bearer token is required")
     }
 
-    let subject: String
-    do {
-        subject = try await WorkOSJWTVerifier.shared.subject(from: token, clientID: clientID)
-    } catch {
-        // AuthPlatform-issued opaque device tokens are also accepted for API access.
-        let tokenHash = SecureValues.hash(token)
-        guard let stored = try await OAuthAccessToken.query(on: req.db)
-            .filter(\.$tokenHash == tokenHash).first(),
-              stored.expiresAt > Date(),
-              let user = try await AuthUser.find(stored.userID, on: req.db) else {
-            throw Abort(.unauthorized, reason: "Invalid or expired bearer token")
+    // WorkOS JWTs are accepted when WorkOS is configured. Telegram and device
+    // sessions are opaque AuthPlatform tokens and must remain usable without it.
+    if let clientID = AuthConfig.workOSClientID,
+       let subject = try? await WorkOSJWTVerifier.shared.subject(from: token, clientID: clientID) {
+        if let existing = try await AuthUser.query(on: req.db)
+            .filter(\.$workosSubject == subject).first() {
+            return existing
         }
+        let user = AuthUser(workosSubject: subject)
+        try await user.save(on: req.db)
         return user
     }
 
-    if let existing = try await AuthUser.query(on: req.db).filter(\.$workosSubject == subject).first() {
-        return existing
+    let tokenHash = SecureValues.hash(token)
+    guard let stored = try await OAuthAccessToken.query(on: req.db)
+        .filter(\.$tokenHash == tokenHash).first(),
+          stored.expiresAt > Date(),
+          let user = try await AuthUser.find(stored.userID, on: req.db) else {
+        throw Abort(.unauthorized, reason: "Invalid or expired bearer token")
     }
-    let user = AuthUser(workosSubject: subject)
-    try await user.save(on: req.db)
     return user
 }
 
