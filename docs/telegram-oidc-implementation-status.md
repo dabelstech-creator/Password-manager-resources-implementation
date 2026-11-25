@@ -8,6 +8,7 @@ Branch: `feat/telegram-oidc-kmp-device-integration`
 - `POST /v1/auth/telegram` accepts a signed ID token, resolves a stable Telegram subject, and returns a short-lived opaque AuthPlatform bearer token. The raw ID token is not persisted.
 - A provider identity table uniquely maps Telegram subjects to AuthPlatform users.
 - A pre-existing, verified `/link` bot account link is reused when the OIDC subject matches the Telegram account ID.
+- `@moredesaBot` can inspect pending device requests and requires a two-step `/approve CODE` then `/confirm CODE` action; `/deny CODE` rejects requests. The API verifies the linked Telegram account and bot service secret.
 - Existing P-256 challenge/bind/list/revoke endpoints accept the issued opaque session token through the common bearer-token resolver.
 - A separate KMP client module scaffold uses the published `app.univera.telegramlogin:telegram-login:0.3.0` artifact and documents Android/iOS callback integration.
 - CI workflow added for Swift build, KMP Android/iOS compilation, and Telegram bot syntax tests (workflow execution still pending).
@@ -21,12 +22,12 @@ The shared bearer resolver accepts opaque AuthPlatform tokens even if WorkOS is 
 
 ## Not yet production-complete
 
-- Browser device approval frontend and browser session bootstrap are not implemented. The API approval endpoint still requires an authenticated bearer token; the bot must not silently approve a device.
+- A browser approval frontend/session bootstrap is not implemented. Desktop/CLI device requests can be approved through the linked Telegram bot using the explicit two-step preview/confirmation flow; the bot does not issue tokens.
 - Android package name, production signing fingerprint, iOS bundle ID, Apple Team ID, and both BotFather redirect hosts are not present in this repository. Host-app callback registration cannot be completed until those real values exist.
 - The KMP module is a scaffold, not a finished Android/iOS application. The host apps do not exist in this repository, and callback round trips have not yet been device-tested.
 - Device challenge consumption and OAuth grant approval/token issuance need transaction-level concurrency tests.
 - Public auth rate limiting, security audit events, refresh-token rotation/reuse detection, and robust JWKS cache/rotation behavior need additional hardening.
-- The Telegram Serverless bot handler is configured to call AuthPlatform; live bot deployment and integration tests have not been performed.
+- The Telegram Serverless bot handler is configured to call AuthPlatform, including the approval preview/confirm/deny commands; live bot deployment and integration tests have not been performed.
 
 ## Required deployment variables
 
