@@ -14,6 +14,7 @@ enum AuthConfig {
     static var workOSClientID: String? { Environment.get("WORKOS_CLIENT_ID") }
     static var iosRedirectURI: String? { Environment.get("WORKOS_REDIRECT_URI_IOS") }
     static var publicBaseURL: String? { Environment.get("AUTHPLATFORM_PUBLIC_BASE_URL") }
+    static var deviceVerificationURL: String? { Environment.get("AUTHPLATFORM_DEVICE_VERIFICATION_URL") }
     static var telegramSecret: String? { Environment.get("TELEGRAM_BOT_SHARED_SECRET") }
     static var oauthClientID: String? { Environment.get("AUTHPLATFORM_OAUTH_CLIENT_ID") }
     static var allowedScopes: Set<String> {
@@ -518,8 +519,10 @@ func registerProductionAuthRoutes(_ app: Application) {
         guard scopes.allSatisfy({ AuthConfig.allowedScopes.contains($0) }) else {
             throw Abort(.badRequest, reason: "One or more requested scopes are not allowed")
         }
-        guard let baseURL = AuthConfig.publicBaseURL else {
-            throw Abort(.serviceUnavailable, reason: "AuthPlatform public base URL is not configured")
+        guard let baseURL = AuthConfig.deviceVerificationURL,
+              AuthConfig.publicBaseURL != nil,
+              URL(string: baseURL)?.scheme == "https" else {
+            throw Abort(.serviceUnavailable, reason: "HTTPS device verification URL and public API base URL are required")
         }
         let deviceCode = SecureValues.base64URL(SecureValues.random(40))
         var code = SecureValues.userCode()
@@ -528,7 +531,7 @@ func registerProductionAuthRoutes(_ app: Application) {
         }
         let grant = DeviceGrant(clientID: registeredClient, deviceCode: deviceCode, userCode: code, scopes: scopes)
         try await grant.save(on: req.db)
-        let verify = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/device"
+        let verify = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         return DeviceAuthorizationResponse(device_code: deviceCode, user_code: code,
             verification_uri: verify, verification_uri_complete: verify + "?user_code=" + code,
             expires_in: 600, interval: 5)
