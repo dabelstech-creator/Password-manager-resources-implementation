@@ -4,6 +4,7 @@ import Fluent
 import FluentPostgresDriver
 import JWTKit
 import Crypto
+import SQLKit
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -155,10 +156,11 @@ private extension Data {
 final class AuthUser: Model {
     static let schema = "auth_users"
     @ID(key: .id) var id: UUID?
-    @Field(key: "workos_subject") var workosSubject: String
+    @OptionalField(key: "workos_subject") var workosSubject: String?
     @Field(key: "created_at") var createdAt: Date
     init() {}
     init(workosSubject: String) { self.workosSubject = workosSubject; self.createdAt = Date() }
+    init(telegramOnly: Bool) { self.workosSubject = nil; self.createdAt = Date() }
 }
 
 final class RegisteredDevice: Model, Content {
@@ -262,7 +264,7 @@ final class TelegramLink: Model {
 struct CreateAuthPlatformTables: AsyncMigration {
     func prepare(on db: Database) async throws {
         try await db.schema("auth_users").id()
-            .field("workos_subject", .string, .required).field("created_at", .datetime, .required)
+            .field("workos_subject", .string).field("created_at", .datetime, .required)
             .unique(on: "workos_subject").create()
         try await db.schema("registered_devices").id()
             .field("user_id", .uuid, .required).field("public_key", .string, .required)
@@ -299,6 +301,26 @@ struct CreateAuthPlatformTables: AsyncMigration {
                       "oauth_device_grants", "device_challenges", "registered_devices", "auth_users"] {
             try await db.schema(table).delete()
         }
+    }
+}
+
+
+// Existing installations created workos_subject as NOT NULL. This additive migration
+// makes the provider-specific subject optional without dropping existing WorkOS data.
+struct MakeWorkOSSubjectNullable: AsyncMigration {
+    func prepare(on db: Database) async throws {
+        guard let sql = db as? any SQLDatabase else {
+            throw Abort(.serviceUnavailable, reason: "SQL database is required for identity migration")
+        }
+        try await sql.raw("ALTER TABLE auth_users ALTER COLUMN workos_subject DROP NOT NULL").run()
+    }
+
+    func revert(on db: Database) async throws {
+        guard let sql = db as? any SQLDatabase else {
+            throw Abort(.serviceUnavailable, reason: "SQL database is required for identity migration")
+        }
+        try await sql.raw("UPDATE auth_users SET workos_subject = 'legacy:' || id::text WHERE workos_subject IS NULL").run()
+        try await sql.raw("ALTER TABLE auth_users ALTER COLUMN workos_subject SET NOT NULL").run()
     }
 }
 
