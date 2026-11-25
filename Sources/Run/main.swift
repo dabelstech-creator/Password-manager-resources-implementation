@@ -32,6 +32,7 @@ app.http.server.configuration.port = Environment.get("PORT").flatMap(Int.init) ?
 if let databaseURL = Environment.get("DATABASE_URL") {
     try app.databases.use(.postgres(url: databaseURL), as: .psql)
     app.migrations.add(CreateAuthPlatformTables())
+    app.migrations.add(MakeWorkOSSubjectNullable())
     app.migrations.add(CreateTelegramOIDCIdentities())
     try app.autoMigrate()
 }
