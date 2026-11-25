@@ -1,0 +1,28 @@
+name: Telegram bot checks
+
+on:
+  pull_request:
+    paths:
+      - "TelegramBot/**"
+      - ".github/workflows/telegram-bot-check.yml"
+  push:
+    branches:
+      - main
+      - "feat/telegram-serverless-moredesabot"
+    paths:
+      - "TelegramBot/**"
+      - ".github/workflows/telegram-bot-check.yml"
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: TelegramBot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --ignore-scripts
+      - run: npm test

@@ -1,0 +1,17 @@
+{
+  "name": "moredesa-authplatform-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "login": "tgcloud login",
+    "status": "tgcloud status",
+    "run": "tgcloud run handlers/message",
+    "push": "tgcloud push",
+    "deploy": "tgcloud push",
+    "test": "node --check tgcloud/handlers/message.js"
+  },
+  "devDependencies": {
+    "@tgcloud/cli": "^0.2.0"
+  }
+}
