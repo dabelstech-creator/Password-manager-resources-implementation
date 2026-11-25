@@ -1,0 +1,59 @@
+name: Telegram KMP and bot checks
+
+on:
+  pull_request:
+    paths:
+      - "clients/telegram-login-kmp/**"
+      - "TelegramBot/**"
+      - ".github/workflows/telegram-kmp.yml"
+  push:
+    branches:
+      - "feat/telegram-oidc-kmp-device-integration"
+    paths:
+      - "clients/telegram-login-kmp/**"
+      - "TelegramBot/**"
+      - ".github/workflows/telegram-kmp.yml"
+
+jobs:
+  android-kmp:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Compile Android KMP target
+        working-directory: clients/telegram-login-kmp
+        run: gradle :shared:compileDebugKotlinAndroid
+
+  ios-kmp:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Compile iOS simulator target
+        working-directory: clients/telegram-login-kmp
+        run: gradle :shared:compileKotlinIosSimulatorArm64
+
+  telegram-bot:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check Telegram Serverless handler
+        working-directory: TelegramBot
+        run: |
+          npm install --ignore-scripts
+          npm test
