@@ -50,6 +50,7 @@ app.get("ready") { _ async -> HealthResponse in
         && Environment.get("WORKOS_CLIENT_ID") != nil
         && Environment.get("WORKOS_REDIRECT_URI_IOS") != nil
         && Environment.get("AUTHPLATFORM_PUBLIC_BASE_URL") != nil
+        && Environment.get("AUTHPLATFORM_DEVICE_VERIFICATION_URL") != nil
         && Environment.get("AUTHPLATFORM_OAUTH_CLIENT_ID") != nil
     return HealthResponse(status: ready ? "ready" : "not_ready", service: "AuthPlatform API readiness")
 }
