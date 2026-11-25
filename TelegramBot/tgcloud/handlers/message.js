@@ -15,7 +15,7 @@ const HELP = [
 ].join('\n');
 
 function configuration() {
-  const base = process.env.AUTHPLATFORM_API_URL?.replace(/\\/$/, '');
+  const base = process.env.AUTHPLATFORM_API_URL?.replace(/\/+$/, '');
   const secret = process.env.AUTHPLATFORM_TELEGRAM_SHARED_SECRET;
   if (!base || !secret) throw new Error('Telegram API integration is not configured');
   return { base, secret };
