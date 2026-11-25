@@ -11,10 +11,10 @@ const HELP = [
   '/oauth — OAuth device authorization status',
   '',
   'Security: never send passwords, recovery codes, API tokens, or one-time codes to this bot.',
-].join('\\n');
+].join('\n');
 
 function responseFor(text) {
-  const command = (text ?? '').trim().split(/\\s+/, 1)[0].split('@')[0].toLowerCase();
+  const command = (text ?? '').trim().split(/\s+/, 1)[0].split('@')[0].toLowerCase();
 
   switch (command) {
     case '/start':
@@ -30,7 +30,7 @@ function responseFor(text) {
         'OAuth device authorization: not implemented in the current API',
         '',
         'No authentication decision or credential verification is performed by this bot yet.',
-      ].join('\\n');
+      ].join('\n');
     case '/device':
       return 'Device binding is not yet available. The current AuthPlatform service exposes a prototype decision endpoint only; it does not register, bind, revoke, or verify devices.';
     case '/oauth':
