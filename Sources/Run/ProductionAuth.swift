@@ -363,6 +363,17 @@ private struct TelegramDeviceSummary: Content {
 }
 private struct TelegramDevicesResponse: Content { let devices: [TelegramDeviceSummary] }
 private struct TelegramStatusResponse: Content { let status: String; let service: String }
+private struct TelegramDeviceApprovalRequest: Content {
+    let telegram_user_id: String
+    let user_code: String
+    let approve: Bool
+}
+private struct TelegramDeviceApprovalPreview: Content {
+    let client_id: String
+    let scopes: String
+    let expires_at: Date
+}
+
 
 private func requireDatabase() throws {
     guard Environment.get("DATABASE_URL") != nil else {
@@ -673,6 +684,47 @@ func registerProductionAuthRoutes(_ app: Application) {
             guard let id = device.id else { return nil }
             return TelegramDeviceSummary(id: id, label: device.label, platform: device.platform, createdAt: device.createdAt)
         })
+    }
+
+
+    // The Telegram bot is an explicit secondary approval channel for device grants.
+    // The service secret authenticates the bot; the linked Telegram account identifies
+    // the user. A preview is required before the user sends /confirm.
+    app.get("v1", "telegram", "device-authorizations") { req async throws -> TelegramDeviceApprovalPreview in
+        try requireDatabase(); try requireTelegramService(req)
+        guard let telegramID = req.query[String.self, at: "telegram_user_id"],
+              let rawCode = req.query[String.self, at: "user_code"],
+              let link = try await TelegramLink.query(on: req.db)
+                .filter(\.$telegramUserID == telegramID).first() else {
+            throw Abort(.notFound, reason: "Telegram account is not linked")
+        }
+        let code = rawCode.uppercased().filter { $0.isLetter || $0.isNumber }
+        guard let grant = try await DeviceGrant.query(on: req.db)
+            .filter(\.$userCodeHash == SecureValues.hash(code)).first(),
+              grant.status == "pending", grant.expiresAt > Date() else {
+            throw Abort(.notFound, reason: "Device request is invalid, expired, or already handled")
+        }
+        _ = link
+        return TelegramDeviceApprovalPreview(client_id: grant.clientID, scopes: grant.scopes, expires_at: grant.expiresAt)
+    }
+
+    app.post("v1", "telegram", "device-approval") { req async throws -> HTTPStatus in
+        try requireDatabase(); try requireTelegramService(req)
+        let input = try req.content.decode(TelegramDeviceApprovalRequest.self)
+        guard let link = try await TelegramLink.query(on: req.db)
+            .filter(\.$telegramUserID == input.telegram_user_id).first() else {
+            throw Abort(.notFound, reason: "Telegram account is not linked")
+        }
+        let code = input.user_code.uppercased().filter { $0.isLetter || $0.isNumber }
+        guard let grant = try await DeviceGrant.query(on: req.db)
+            .filter(\.$userCodeHash == SecureValues.hash(code)).first(),
+              grant.status == "pending", grant.expiresAt > Date() else {
+            throw Abort(.badRequest, reason: "Device request is invalid, expired, or already handled")
+        }
+        grant.status = input.approve ? "approved" : "denied"
+        grant.userID = input.approve ? link.userID : nil
+        try await grant.save(on: req.db)
+        return .noContent
     }
 
     app.get("v1", "telegram", "status") { req async throws -> TelegramStatusResponse in
