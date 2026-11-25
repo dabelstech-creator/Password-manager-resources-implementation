@@ -6,35 +6,82 @@ const HELP = [
   'Commands:',
   '/start — introduction',
   '/help — show commands',
-  '/status — integration readiness',
-  '/device — device-binding status',
-  '/oauth — OAuth device authorization status',
+  '/status — API integration readiness',
+  '/link — link this Telegram account to AuthPlatform',
+  '/device — list devices on your linked AuthPlatform account',
+  '/oauth — instructions for approving a device sign-in',
   '',
-  'Security: never send passwords, recovery codes, API tokens, or one-time codes to this bot.',
+  'Security: never send passwords, recovery codes, API tokens, or one-time login codes to this bot.',
 ].join('\n');
 
-function responseFor(text) {
-  const command = (text ?? '').trim().split(/\s+/, 1)[0].split('@')[0].toLowerCase();
+function configuration() {
+  const base = process.env.AUTHPLATFORM_API_URL?.replace(/\\/$/, '');
+  const secret = process.env.AUTHPLATFORM_TELEGRAM_SHARED_SECRET;
+  if (!base || !secret) throw new Error('Telegram API integration is not configured');
+  return { base, secret };
+}
+
+async function apiRequest(path, options = {}) {
+  const { base, secret } = configuration();
+  const response = await fetch(`${base}${path}`, {
+    ...options,
+    headers: {
+      'X-AuthPlatform-Telegram-Secret': secret,
+      'Content-Type': 'application/json',
+      ...(options.headers ?? {}),
+    },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) throw new Error(`AuthPlatform API returned HTTP ${response.status}`);
+  return response.status === 204 ? null : response.json();
+}
+
+async function responseFor(message) {
+  const command = (message.text ?? '').trim().split(/\\s+/, 1)[0].split('@')[0].toLowerCase();
+  const telegramUserID = message.from?.id == null ? null : String(message.from.id);
 
   switch (command) {
     case '/start':
-      return 'Welcome to AuthPlatform. This bot is the Telegram interface for the AuthPlatform prototype. Use /help to see available commands.';
+      return 'Welcome to AuthPlatform. Use /link to connect this Telegram account after signing in to AuthPlatform, /device to view linked devices, and /help for commands.';
     case '/help':
       return HELP;
     case '/status':
-      return [
-        'AuthPlatform integration status',
-        'Telegram Serverless handler: configured in source',
-        'AuthPlatform API connection: not configured',
-        'Device binding: not implemented in the current API',
-        'OAuth device authorization: not implemented in the current API',
-        '',
-        'No authentication decision or credential verification is performed by this bot yet.',
-      ].join('\n');
+      try {
+        const result = await apiRequest('/v1/telegram/status');
+        return `AuthPlatform API: ${result.status}\nService: ${result.service}`;
+      } catch {
+        return 'AuthPlatform API is not reachable or Telegram service credentials are not configured.';
+      }
+    case '/link':
+      if (!telegramUserID) return 'Telegram user identity is unavailable for this message.';
+      try {
+        const result = await apiRequest('/v1/telegram/link-challenges', {
+          method: 'POST',
+          body: JSON.stringify({ telegram_user_id: telegramUserID }),
+        });
+        return [
+          'Account-link verification',
+          `Your one-time link code is: ${result.code}`,
+          '',
+          'Open the AuthPlatform app or website, sign in with WorkOS, and enter this code in the Telegram linking screen.',
+          'The code expires in 10 minutes. This bot will never ask for your password or login token.',
+        ].join('\n');
+      } catch {
+        return 'Could not create a link code. Check the AuthPlatform API configuration and try again.';
+      }
     case '/device':
-      return 'Device binding is not yet available. The current AuthPlatform service exposes a prototype decision endpoint only; it does not register, bind, revoke, or verify devices.';
+      if (!telegramUserID) return 'Telegram user identity is unavailable for this message.';
+      try {
+        const result = await apiRequest(`/v1/telegram/devices?telegram_user_id=${encodeURIComponent(telegramUserID)}`);
+        if (!result.devices?.length) return 'No active devices are registered on the linked AuthPlatform account.';
+        return ['Your active AuthPlatform devices:', ...result.devices.map((device, index) =>
+          `${index + 1}. ${device.label} — ${device.platform} (ID: ${device.id})`
+        )].join('\n');
+      } catch {
+        return 'This Telegram account is not linked, or the AuthPlatform API is unavailable. Use /link first.';
+      }
     case '/oauth':
-      return 'OAuth device authorization is not yet available. The current repository does not expose device-code issuance, polling, token exchange, or token validation endpoints.';
+      return 'To sign in on a TV, CLI, or other device, start the OAuth device authorization flow in that device’s AuthPlatform client. It will display a short user code and verification URL. Open the URL, sign in with WorkOS, review the requested access, and approve it. This bot does not issue or deliver access tokens.';
     default:
       return 'I did not recognize that command. Use /help. Do not send passwords or authentication codes here.';
   }
@@ -42,9 +89,11 @@ function responseFor(text) {
 
 export default async function (message) {
   if (!message?.chat?.id || typeof message.text !== 'string') return;
-
-  await api.sendMessage({
-    chat_id: message.chat.id,
-    text: responseFor(message.text),
-  });
+  let text;
+  try {
+    text = await responseFor(message);
+  } catch {
+    text = 'AuthPlatform integration is temporarily unavailable. Try again later.';
+  }
+  await api.sendMessage({ chat_id: message.chat.id, text });
 }
