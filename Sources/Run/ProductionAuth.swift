@@ -592,7 +592,7 @@ func registerProductionAuthRoutes(_ app: Application) {
         let input = try req.content.decode(OAuthRevokeRequest.self)
         guard input.client_id == AuthConfig.oauthClientID else { throw Abort(.unauthorized) }
         if let stored = try await OAuthAccessToken.query(on: req.db)
-            .filter(\\.$tokenHash == SecureValues.hash(input.token)).first() {
+            .filter(\.$tokenHash == SecureValues.hash(input.token)).first() {
             try await stored.delete(on: req.db)
         }
         return .noContent
