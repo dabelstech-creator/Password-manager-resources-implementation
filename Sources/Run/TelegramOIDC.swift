@@ -95,9 +95,7 @@ actor TelegramOIDCVerifier {
 }
 
 // Separate provider identity table makes the Telegram subject unique and auditable.
-// The existing auth_users.workos_subject column is non-nullable in deployed schemas;
-// until a dedicated nullable-column migration is applied, Telegram-created users use
-// a reserved, namespaced internal subject. Never expose this value as a WorkOS subject.
+// WorkOS subject is optional, so a Telegram-only user has no fabricated WorkOS identity.
 final class TelegramOIDCIdentity: Model {
     static let schema = "telegram_oidc_identities"
     @ID(key: .id) var id: UUID?
