@@ -319,6 +319,16 @@ private struct DeviceApprovalRequest: Content { let user_code: String; let appro
 private struct TokenRequest: Content { let grant_type: String; let device_code: String; let client_id: String }
 private struct OAuthTokenResponse: Content { let access_token: String; let token_type: String; let expires_in: Int; let scope: String }
 private struct OAuthErrorResponse: Content { let error: String; let error_description: String }
+private struct OAuthRevokeRequest: Content { let token: String; let client_id: String }
+private struct AuthorizationServerMetadata: Content {
+    let issuer: String
+    let device_authorization_endpoint: String
+    let token_endpoint: String
+    let revocation_endpoint: String
+    let grant_types_supported: [String]
+    let response_types_supported: [String]
+    let token_endpoint_auth_methods_supported: [String]
+}
 private struct TelegramChallengeRequest: Content { let telegram_user_id: String }
 private struct TelegramChallengeResponse: Content { let code: String; let expires_in: Int }
 private struct TelegramClaimRequest: Content { let code: String }
@@ -483,6 +493,20 @@ func registerProductionAuthRoutes(_ app: Application) {
         return .noContent
     }
 
+    app.get(".well-known", "oauth-authorization-server") { req async throws -> AuthorizationServerMetadata in
+        guard let baseURL = AuthConfig.publicBaseURL else { throw Abort(.serviceUnavailable) }
+        let issuer = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return AuthorizationServerMetadata(
+            issuer: issuer,
+            device_authorization_endpoint: issuer + "/oauth/device_authorization",
+            token_endpoint: issuer + "/oauth/token",
+            revocation_endpoint: issuer + "/oauth/revoke",
+            grant_types_supported: ["urn:ietf:params:oauth:grant-type:device_code"],
+            response_types_supported: [],
+            token_endpoint_auth_methods_supported: ["none"]
+        )
+    }
+
     app.post("oauth", "device_authorization") { req async throws -> DeviceAuthorizationResponse in
         try requireDatabase()
         guard let registeredClient = AuthConfig.oauthClientID else {
@@ -561,6 +585,17 @@ func registerProductionAuthRoutes(_ app: Application) {
         try response.content.encode(OAuthTokenResponse(access_token: accessToken, token_type: "Bearer",
             expires_in: 3600, scope: grant.scopes))
         return response
+    }
+
+    app.post("oauth", "revoke") { req async throws -> HTTPStatus in
+        try requireDatabase()
+        let input = try req.content.decode(OAuthRevokeRequest.self)
+        guard input.client_id == AuthConfig.oauthClientID else { throw Abort(.unauthorized) }
+        if let stored = try await OAuthAccessToken.query(on: req.db)
+            .filter(\\.$tokenHash == SecureValues.hash(input.token)).first() {
+            try await stored.delete(on: req.db)
+        }
+        return .noContent
     }
 
     // Telegram service endpoints. Telegram identity is only linked after an authenticated
