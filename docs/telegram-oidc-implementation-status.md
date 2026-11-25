@@ -12,11 +12,12 @@ Branch: `feat/telegram-oidc-kmp-device-integration`
 - A separate KMP client module scaffold uses the published `app.univera.telegramlogin:telegram-login:0.3.0` artifact and documents Android/iOS callback integration.
 - CI workflow added for Swift build, KMP Android/iOS compilation, and Telegram bot syntax tests (workflow execution still pending).
 
-## Important compatibility note
+## Identity model migration
 
-The current deployed schema defines `auth_users.workos_subject` as non-nullable. To avoid an unsafe destructive schema change in this PR, Telegram-only accounts currently use a reserved internal value prefixed with `telegram-oidc:` in that legacy column, plus a separate `telegram_oidc_identities` provider mapping table. This internal value is not a WorkOS credential and must not be exposed as one. A follow-up migration should make the legacy WorkOS subject nullable before production rollout.
+The `AuthUser.workos_subject` field is now optional. Existing WorkOS subject values are preserved, and a new additive SQL migration removes the old NOT NULL constraint. Telegram subjects are stored separately in `telegram_oidc_identities` with a unique constraint; Telegram-only accounts do not receive fabricated WorkOS subjects.
 
 The shared bearer resolver accepts opaque AuthPlatform tokens even if WorkOS is not configured. WorkOS JWT verification remains available when its client ID is configured.
+
 
 ## Not yet production-complete
 
