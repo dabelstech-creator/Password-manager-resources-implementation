@@ -76,7 +76,7 @@ actor TelegramOIDCVerifier {
 
         let segments = token.split(separator: ".")
         guard segments.count == 3,
-              let headerData = Data(base64URL: String(segments[0])),
+              let headerData = telegramBase64URLDecode(String(segments[0])),
               let header = try? JSONSerialization.jsonObject(with: headerData) as? [String: Any],
               let algorithm = header["alg"] as? String,
               ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "EdDSA"].contains(algorithm) else {
@@ -184,4 +184,11 @@ private func requireTelegramOIDCDatabase() throws {
     guard Environment.get("DATABASE_URL") != nil else {
         throw Abort(.serviceUnavailable, reason: "Persistent database is not configured")
     }
+}
+
+
+private func telegramBase64URLDecode(_ value: String) -> Data? {
+    var normalized = value.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+    while normalized.count % 4 != 0 { normalized.append("=") }
+    return Data(base64Encoded: normalized)
 }
