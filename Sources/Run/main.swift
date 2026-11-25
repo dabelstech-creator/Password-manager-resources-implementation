@@ -30,9 +30,9 @@ app.http.server.configuration.port = Environment.get("PORT").flatMap(Int.init) ?
 // If the database is configured but unavailable, startup fails rather than silently
 // falling back to process-local storage.
 if let databaseURL = Environment.get("DATABASE_URL") {
-    app.databases.use(.postgres(url: databaseURL), as: .psql)
+    try app.databases.use(.postgres(url: databaseURL), as: .psql)
     app.migrations.add(CreateAuthPlatformTables())
-    try await app.autoMigrate()
+    try app.autoMigrate()
 }
 
 registerProductionAuthRoutes(app)
