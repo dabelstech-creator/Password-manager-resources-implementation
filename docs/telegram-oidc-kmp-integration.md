@@ -25,15 +25,7 @@ The AuthPlatform backend is Swift/Vapor with Fluent/PostgreSQL. Do not add a par
 
 ## Required backend changes
 
-The current `AuthUser.workos_subject` is non-nullable, so it cannot represent a Telegram-only user. Before enabling Telegram-native sign-in:
-
-- Make the WorkOS subject optional in the user model and database migration, retaining a unique constraint for non-null values.
-- Add a `telegram_identities` table with a unique `telegram_subject`, `user_id` foreign key, provider issuer, created/updated timestamps, and optional verified profile metadata. Keep the OIDC `sub` as the durable key.
-- Add a Telegram OIDC verifier with bounded JWKS cache lifetime, key-rotation handling, explicit algorithm allow-list, issuer/audience/time validation, and fail-closed network/error behavior.
-- Add `TELEGRAM_LOGIN_CLIENT_ID` as server-side configuration. This is the Telegram Login/OIDC client ID configured in BotFather; it is not the bot API token and must not be guessed from the bot username.
-- Add `POST /v1/auth/telegram` accepting `{ "id_token": "..." }`. Return an AuthPlatform session response, never echo the ID token or expose it in logs.
-- Refactor bearer authentication so AuthPlatform-issued opaque device tokens remain valid even when WorkOS is not configured; do not make Telegram-only users depend on a WorkOS client ID.
-- Add account-link and unlink rules. A Telegram subject may belong to only one AuthPlatform user. Linking must require a current authenticated session and one-time confirmation; unlinking must require a remaining recovery/authentication method.
+Implemented on the integration branch: the WorkOS subject is optional via an additive SQL migration, and `telegram_oidc_identities` stores unique Telegram `sub` values separately. The branch also adds Telegram JWKS verification, `TELEGRAM_LOGIN_CLIENT_ID`, `POST /v1/auth/telegram`, and opaque AuthPlatform sessions usable by the existing P-256 device endpoints. The account-link path rejects a Telegram identity already attached to another AuthPlatform user; automatic cross-account merging is intentionally disabled. Unlink/recovery UX remains a production requirement.
 - Keep the existing BotFather serverless shared-secret endpoints separate from public user authentication. Validate service credentials with constant-time comparison, rate-limit public auth endpoints, and never trust a raw Telegram user ID supplied by an unauthenticated client.
 - Add audit events for login success/failure, link/unlink, device bind/revoke, and device authorization approval/denial. Do not log ID tokens, bot tokens, private keys, link codes, or bearer tokens.
 
