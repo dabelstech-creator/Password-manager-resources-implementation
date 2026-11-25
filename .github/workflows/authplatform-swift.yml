@@ -1,0 +1,30 @@
+name: AuthPlatform Swift checks
+
+on:
+  pull_request:
+    paths:
+      - "Package.swift"
+      - "Sources/Run/**"
+      - "Tests/**"
+      - ".github/workflows/authplatform-swift.yml"
+  push:
+    branches:
+      - "feat/workos-device-oauth-backend"
+    paths:
+      - "Package.swift"
+      - "Sources/Run/**"
+      - "Tests/**"
+      - ".github/workflows/authplatform-swift.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.0"
+      - name: Resolve dependencies
+        run: swift package resolve
+      - name: Build AuthPlatform
+        run: swift build -c release --product Run
