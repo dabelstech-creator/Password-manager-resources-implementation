@@ -58,7 +58,7 @@ private struct WorkOSDiscovery: Decodable {
     let jwks_uri: URL
 }
 
-private enum JWTExpectedAudience: Decodable {
+private enum JWTExpectedAudience: Codable {
     case one(String)
     case many([String])
 
@@ -66,6 +66,14 @@ private enum JWTExpectedAudience: Decodable {
         let container = try decoder.singleValueContainer()
         if let value = try? container.decode(String.self) { self = .one(value) }
         else { self = .many(try container.decode([String].self)) }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .one(let value): try container.encode(value)
+        case .many(let values): try container.encode(values)
+        }
     }
 
     func contains(_ value: String) -> Bool {
@@ -314,7 +322,13 @@ private struct OAuthErrorResponse: Content { let error: String; let error_descri
 private struct TelegramChallengeRequest: Content { let telegram_user_id: String }
 private struct TelegramChallengeResponse: Content { let code: String; let expires_in: Int }
 private struct TelegramClaimRequest: Content { let code: String }
-private struct TelegramDevicesResponse: Content { let devices: [RegisteredDevice] }
+private struct TelegramDeviceSummary: Content {
+    let id: UUID
+    let label: String
+    let platform: String
+    let createdAt: Date
+}
+private struct TelegramDevicesResponse: Content { let devices: [TelegramDeviceSummary] }
 private struct TelegramStatusResponse: Content { let status: String; let service: String }
 
 private func requireDatabase() throws {
@@ -591,7 +605,10 @@ func registerProductionAuthRoutes(_ app: Application) {
         }
         let devices = try await RegisteredDevice.query(on: req.db)
             .filter(\.$userID == link.userID).filter(\.$revokedAt == nil).all()
-        return TelegramDevicesResponse(devices: devices)
+        return TelegramDevicesResponse(devices: devices.compactMap { device in
+            guard let id = device.id else { return nil }
+            return TelegramDeviceSummary(id: id, label: device.label, platform: device.platform, createdAt: device.createdAt)
+        })
     }
 
     app.get("v1", "telegram", "status") { req async throws -> TelegramStatusResponse in
