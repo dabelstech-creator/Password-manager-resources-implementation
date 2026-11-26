@@ -15,7 +15,7 @@ const HELP = [
   '/deny CODE — deny a device sign-in request',
   '/oauth — browser approval instructions',
   '',
-  'Security: never send passwords, recovery codes, API tokens, or one-time login codes to this bot.',
+  'Security: only send the device code shown by your AuthPlatform client to /approve. Never send passwords, recovery codes, bearer tokens, or other one-time login codes.',
 ].join('\n');
 
 function configuration() {
