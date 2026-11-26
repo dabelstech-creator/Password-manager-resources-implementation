@@ -646,7 +646,7 @@ func registerProductionAuthRoutes(_ app: Application) {
         let code = rawCode.uppercased().filter { $0.isLetter || $0.isNumber }
         guard code.count == 8,
               let grant = try await DeviceGrant.query(on: req.db)
-                .filter(\\.$userCodeHash == SecureValues.hash(code)).first(),
+                .filter(\.$userCodeHash == SecureValues.hash(code)).first(),
               grant.status == "pending", grant.expiresAt > Date() else {
             throw Abort(.notFound, reason: "Device request is invalid, expired, or already handled")
         }
