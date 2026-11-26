@@ -1,10 +1,26 @@
 # AuthPlatform Telegram bot — @moredesaBot
 
-This directory contains the Telegram Serverless handler for the AuthPlatform backend. It is isolated from the Swift/Vapor API and communicates with it over HTTPS.
+This directory contains the Telegram Serverless handler for the AuthPlatform backend. It communicates with AuthPlatform over HTTPS and uses the bot's managed SQLite database only for bot-local operational metadata.
+
+## Database ownership
+
+The system uses a deliberate hybrid model:
+
+| Data | Authoritative store |
+| --- | --- |
+| Telegram chat preferences and minimal bot-user metadata | Telegram Serverless managed SQLite |
+| WorkOS and Telegram identities | AuthPlatform PostgreSQL |
+| AuthPlatform user accounts and account links | AuthPlatform PostgreSQL |
+| Device public keys, registrations, and revocations | AuthPlatform PostgreSQL |
+| OAuth device grants and access-token hashes | AuthPlatform PostgreSQL |
+
+`tgcloud/schema.js` declares the `telegram_bot_users` table. It stores Telegram user ID, chat ID, language code, notification preference, and first/last-seen timestamps. It does not store passwords, OIDC ID tokens, bearer tokens, link codes, private keys, device records, or OAuth grants.
+
+The Serverless SQLite database is managed by Telegram and is accessible only from Telegram Serverless modules through `sdk/db`. It is not an external PostgreSQL-compatible connection string and must not be configured as AuthPlatform's `DATABASE_URL`. The Swift/Vapor backend continues to use PostgreSQL/Fluent as the source of truth for authentication and authorization.
+
+Schema declaration and migration are separate steps: deploying `tgcloud/schema.js` registers the schema; `npx tgcloud migrate` applies the reviewed SQLite migration. Neither command is run as part of this source change.
 
 ## Bot commands
-
-The BotFather command list is configured for these commands:
 
 - `/start`, `/help` — introduction and usage
 - `/status` — check the AuthPlatform API integration
@@ -58,7 +74,7 @@ npx tgcloud push
 npx tgcloud status
 ```
 
-Review the diff and confirm the project is linked to the intended bot before `push`. The bot deployment is not complete until the deployed handler is verified against a staging AuthPlatform API.
+Review the diff and confirm the project is linked to the intended bot before `push`. After deploying a schema change, inspect the migration plan before explicitly running `npx tgcloud migrate`. Do not run either command until the migration is reviewed and separately approved. The bot deployment is not complete until the deployed handler is verified against a staging AuthPlatform API.
 
 ## Security and production boundary
 
@@ -69,4 +85,4 @@ Review the diff and confirm the project is linked to the intended bot before `pu
 - The KMP module is an integration scaffold; native Android/iOS secure-key storage and host-app callback wiring remain incomplete.
 - Browser-based approval UI and end-to-end staging verification remain production gates.
 
-Never deploy this bot against production until the API, database migrations, OIDC client registration, mobile callbacks, browser approval, and security tests have been verified in staging.
+Never deploy this bot against production until the API, PostgreSQL migrations, Serverless SQLite migration, OIDC client registration, mobile callbacks, browser approval, and security tests have been verified in staging.
