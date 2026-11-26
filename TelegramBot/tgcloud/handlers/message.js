@@ -106,8 +106,6 @@ async function responseFor(message) {
         return 'This Telegram account is not linked, or the AuthPlatform API is unavailable. Use /link first.';
       }
     case '/oauth':
-      return 'To sign in on a TV, CLI, or other device, start the OAuth device authorization flow in that device’s AuthPlatform client. It will display a short user code. Send /approve CODE to inspect the requesting client and scopes, then /confirm CODE to approve or /deny CODE to reject. Only a Telegram account already linked to AuthPlatform can approve. The bot never issues or delivers access tokens.';
-    case '/oauth':
       return 'OAuth device authorization is available through the AuthPlatform client, but browser approval and Telegram-based approval are not yet complete. Do not approve a device request in this bot. Use only the official AuthPlatform verification page after it has been deployed and verified.';
     default:
       return 'I did not recognize that command. Use /help. Do not send passwords or authentication codes here.';
