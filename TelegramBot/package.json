@@ -9,7 +9,7 @@
     "run": "tgcloud run handlers/message",
     "push": "tgcloud push",
     "deploy": "tgcloud push",
-    "test": "node --check tgcloud/handlers/message.js"
+    "test": "node --check tgcloud/schema.js && node --check tgcloud/handlers/message.js"
   },
   "devDependencies": {
     "@tgcloud/cli": "^0.2.0"
