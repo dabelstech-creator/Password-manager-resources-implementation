@@ -710,6 +710,12 @@ func registerProductionAuthRoutes(_ app: Application) {
         query.set(\.$status, to: input.approve ? "approved" : "denied")
         query.set(\.$userID, to: input.approve ? user.id : nil)
         try await query.update()
+        guard let resultingGrant = try await DeviceGrant.query(on: req.db)
+            .filter(\\.$userCodeHash == SecureValues.hash(code)).first(),
+              resultingGrant.status == (input.approve ? "approved" : "denied"),
+              resultingGrant.userID == (input.approve ? user.id : nil) else {
+            throw Abort(.conflict, reason: "Device request was already handled by another approval attempt")
+        }
         return .noContent
     }
 
@@ -859,6 +865,12 @@ func registerProductionAuthRoutes(_ app: Application) {
         query.set(\.$status, to: input.approve ? "approved" : "denied")
         query.set(\.$userID, to: input.approve ? link.userID : nil)
         try await query.update()
+        guard let resultingGrant = try await DeviceGrant.query(on: req.db)
+            .filter(\\.$userCodeHash == SecureValues.hash(code)).first(),
+              resultingGrant.status == (input.approve ? "approved" : "denied"),
+              resultingGrant.userID == (input.approve ? link.userID : nil) else {
+            throw Abort(.conflict, reason: "Device request was already handled by another approval attempt")
+        }
         return .noContent
     }
 
