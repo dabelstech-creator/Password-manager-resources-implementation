@@ -578,11 +578,11 @@ func registerProductionAuthRoutes(_ app: Application) {
         // PostgreSQL executes this conditional UPDATE atomically. Concurrent requests
         // cannot both transition the same pending grant.
         var query = DeviceGrant.query(on: req.db)
-            .filter(\\.$userCodeHash == SecureValues.hash(code))
-            .filter(\\.$status == "pending")
-            .filter(\\.$expiresAt > Date())
-        query.set(\\.$status, to: input.approve ? "approved" : "denied")
-        query.set(\\.$userID, to: input.approve ? user.id : nil)
+            .filter(\.$userCodeHash == SecureValues.hash(code))
+            .filter(\.$status == "pending")
+            .filter(\.$expiresAt > Date())
+        query.set(\.$status, to: input.approve ? "approved" : "denied")
+        query.set(\.$userID, to: input.approve ? user.id : nil)
         try await query.update()
         return .noContent
     }
@@ -718,7 +718,7 @@ func registerProductionAuthRoutes(_ app: Application) {
             throw Abort(.badRequest, reason: "Invalid Telegram user ID")
         }
         guard let link = try await TelegramLink.query(on: req.db)
-            .filter(\\.$telegramUserID == input.telegram_user_id).first() else {
+            .filter(\.$telegramUserID == input.telegram_user_id).first() else {
             throw Abort(.notFound, reason: "Telegram account is not linked")
         }
         let code = input.user_code.uppercased().filter { $0.isLetter || $0.isNumber }
@@ -727,11 +727,11 @@ func registerProductionAuthRoutes(_ app: Application) {
         // The authenticated service identity resolves to a linked account; the atomic
         // conditional UPDATE makes approval/denial single-use under concurrent requests.
         var query = DeviceGrant.query(on: req.db)
-            .filter(\\.$userCodeHash == SecureValues.hash(code))
-            .filter(\\.$status == "pending")
-            .filter(\\.$expiresAt > Date())
-        query.set(\\.$status, to: input.approve ? "approved" : "denied")
-        query.set(\\.$userID, to: input.approve ? link.userID : nil)
+            .filter(\.$userCodeHash == SecureValues.hash(code))
+            .filter(\.$status == "pending")
+            .filter(\.$expiresAt > Date())
+        query.set(\.$status, to: input.approve ? "approved" : "denied")
+        query.set(\.$userID, to: input.approve ? link.userID : nil)
         try await query.update()
         return .noContent
     }
