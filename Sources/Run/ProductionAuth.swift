@@ -573,14 +573,17 @@ func registerProductionAuthRoutes(_ app: Application) {
         let user = try await currentUser(req)
         let input = try req.content.decode(DeviceApprovalRequest.self)
         let code = input.user_code.uppercased().filter { $0.isLetter || $0.isNumber }
-        guard let grant = try await DeviceGrant.query(on: req.db)
-            .filter(\.$userCodeHash == SecureValues.hash(code)).first(),
-              grant.expiresAt > Date(), grant.status == "pending" else {
-            throw Abort(.badRequest, reason: "User code is invalid, expired, or already used")
-        }
-        grant.status = input.approve ? "approved" : "denied"
-        grant.userID = input.approve ? user.id : nil
-        try await grant.save(on: req.db)
+        guard code.count == 8 else { throw Abort(.badRequest, reason: "Invalid device user code") }
+
+        // PostgreSQL executes this conditional UPDATE atomically. Concurrent requests
+        // cannot both transition the same pending grant.
+        var query = DeviceGrant.query(on: req.db)
+            .filter(\\.$userCodeHash == SecureValues.hash(code))
+            .filter(\\.$status == "pending")
+            .filter(\\.$expiresAt > Date())
+        query.set(\\.$status, to: input.approve ? "approved" : "denied")
+        query.set(\\.$userID, to: input.approve ? user.id : nil)
+        try await query.update()
         return .noContent
     }
 
@@ -711,19 +714,25 @@ func registerProductionAuthRoutes(_ app: Application) {
     app.post("v1", "telegram", "device-approval") { req async throws -> HTTPStatus in
         try requireDatabase(); try requireTelegramService(req)
         let input = try req.content.decode(TelegramDeviceApprovalRequest.self)
+        guard !input.telegram_user_id.isEmpty, input.telegram_user_id.count <= 64 else {
+            throw Abort(.badRequest, reason: "Invalid Telegram user ID")
+        }
         guard let link = try await TelegramLink.query(on: req.db)
-            .filter(\.$telegramUserID == input.telegram_user_id).first() else {
+            .filter(\\.$telegramUserID == input.telegram_user_id).first() else {
             throw Abort(.notFound, reason: "Telegram account is not linked")
         }
         let code = input.user_code.uppercased().filter { $0.isLetter || $0.isNumber }
-        guard let grant = try await DeviceGrant.query(on: req.db)
-            .filter(\.$userCodeHash == SecureValues.hash(code)).first(),
-              grant.status == "pending", grant.expiresAt > Date() else {
-            throw Abort(.badRequest, reason: "Device request is invalid, expired, or already handled")
-        }
-        grant.status = input.approve ? "approved" : "denied"
-        grant.userID = input.approve ? link.userID : nil
-        try await grant.save(on: req.db)
+        guard code.count == 8 else { throw Abort(.badRequest, reason: "Invalid device user code") }
+
+        // The authenticated service identity resolves to a linked account; the atomic
+        // conditional UPDATE makes approval/denial single-use under concurrent requests.
+        var query = DeviceGrant.query(on: req.db)
+            .filter(\\.$userCodeHash == SecureValues.hash(code))
+            .filter(\\.$status == "pending")
+            .filter(\\.$expiresAt > Date())
+        query.set(\\.$status, to: input.approve ? "approved" : "denied")
+        query.set(\\.$userID, to: input.approve ? link.userID : nil)
+        try await query.update()
         return .noContent
     }
 
