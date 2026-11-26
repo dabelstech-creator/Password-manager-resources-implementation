@@ -10,7 +10,10 @@ const HELP = [
   '/status — API integration readiness',
   '/link — link this Telegram account to AuthPlatform',
   '/device — list devices on your linked AuthPlatform account',
-  '/oauth — instructions for approving a device sign-in',
+  '/approve CODE — preview a device sign-in request',
+  '/confirm CODE — approve the previewed request',
+  '/deny CODE — deny a device sign-in request',
+  '/oauth — browser approval instructions',
   '',
   'Security: never send passwords, recovery codes, API tokens, or one-time login codes to this bot.',
 ].join('\n');
@@ -105,8 +108,43 @@ async function responseFor(message) {
       } catch {
         return 'This Telegram account is not linked, or the AuthPlatform API is unavailable. Use /link first.';
       }
+    case '/approve':
+      if (!telegramUserID || !userCode) return 'Usage: /approve CODE';
+      try {
+        const result = await apiRequest(
+          `/v1/telegram/device-authorizations?telegram_user_id=${encodeURIComponent(telegramUserID)}&user_code=${encodeURIComponent(userCode)}`
+        );
+        return [
+          'Device sign-in request',
+          `Client: ${result.client_id}`,
+          `Requested scopes: ${result.scopes || '(none)'}`,
+          `Expires: ${result.expires_at}`,
+          '',
+          'If and only if you initiated this request, send /confirm CODE. Otherwise send /deny CODE.',
+        ].join('\\n');
+      } catch {
+        return 'Could not find a pending request for this code, or this Telegram account is not linked. Check the code and use /link if needed.';
+      }
+    case '/confirm':
+    case '/deny':
+      if (!telegramUserID || !userCode) return `Usage: ${command} CODE`;
+      try {
+        await apiRequest('/v1/telegram/device-approval', {
+          method: 'POST',
+          body: JSON.stringify({
+            telegram_user_id: telegramUserID,
+            user_code: userCode,
+            approve: command === '/confirm',
+          }),
+        });
+        return command === '/confirm'
+          ? 'Device approved. Return to the device to finish sign-in.'
+          : 'Device sign-in request denied.';
+      } catch {
+        return 'This request is invalid, expired, already handled, or this Telegram account is not linked.';
+      }
     case '/oauth':
-      return 'OAuth device authorization is available through the AuthPlatform client, but browser approval and Telegram-based approval are not yet complete. Do not approve a device request in this bot. Use only the official AuthPlatform verification page after it has been deployed and verified.';
+      return 'To approve a device in a browser, open the verification link shown by the AuthPlatform client and sign in. You can also use /approve CODE to review a pending request here, then /confirm CODE or /deny CODE. Never approve a request you did not initiate.';
     default:
       return 'I did not recognize that command. Use /help. Do not send passwords or authentication codes here.';
   }
