@@ -4,6 +4,7 @@ import Fluent
 import FluentPostgresDriver
 import JWTKit
 import Crypto
+import SQLKit
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -155,10 +156,11 @@ private extension Data {
 final class AuthUser: Model {
     static let schema = "auth_users"
     @ID(key: .id) var id: UUID?
-    @Field(key: "workos_subject") var workosSubject: String
+    @OptionalField(key: "workos_subject") var workosSubject: String?
     @Field(key: "created_at") var createdAt: Date
     init() {}
     init(workosSubject: String) { self.workosSubject = workosSubject; self.createdAt = Date() }
+    init(telegramOnly: Bool) { self.workosSubject = nil; self.createdAt = Date() }
 }
 
 final class RegisteredDevice: Model, Content {
@@ -262,7 +264,7 @@ final class TelegramLink: Model {
 struct CreateAuthPlatformTables: AsyncMigration {
     func prepare(on db: Database) async throws {
         try await db.schema("auth_users").id()
-            .field("workos_subject", .string, .required).field("created_at", .datetime, .required)
+            .field("workos_subject", .string).field("created_at", .datetime, .required)
             .unique(on: "workos_subject").create()
         try await db.schema("registered_devices").id()
             .field("user_id", .uuid, .required).field("public_key", .string, .required)
@@ -299,6 +301,26 @@ struct CreateAuthPlatformTables: AsyncMigration {
                       "oauth_device_grants", "device_challenges", "registered_devices", "auth_users"] {
             try await db.schema(table).delete()
         }
+    }
+}
+
+
+// Existing installations created workos_subject as NOT NULL. This additive migration
+// makes the provider-specific subject optional without dropping existing WorkOS data.
+struct MakeWorkOSSubjectNullable: AsyncMigration {
+    func prepare(on db: Database) async throws {
+        guard let sql = db as? any SQLDatabase else {
+            throw Abort(.serviceUnavailable, reason: "SQL database is required for identity migration")
+        }
+        try await sql.raw("ALTER TABLE auth_users ALTER COLUMN workos_subject DROP NOT NULL").run()
+    }
+
+    func revert(on db: Database) async throws {
+        guard let sql = db as? any SQLDatabase else {
+            throw Abort(.serviceUnavailable, reason: "SQL database is required for identity migration")
+        }
+        try await sql.raw("UPDATE auth_users SET workos_subject = 'legacy:' || id::text WHERE workos_subject IS NULL").run()
+        try await sql.raw("ALTER TABLE auth_users ALTER COLUMN workos_subject SET NOT NULL").run()
     }
 }
 
@@ -341,6 +363,17 @@ private struct TelegramDeviceSummary: Content {
 }
 private struct TelegramDevicesResponse: Content { let devices: [TelegramDeviceSummary] }
 private struct TelegramStatusResponse: Content { let status: String; let service: String }
+private struct TelegramDeviceApprovalRequest: Content {
+    let telegram_user_id: String
+    let user_code: String
+    let approve: Bool
+}
+private struct TelegramDeviceApprovalPreview: Content {
+    let client_id: String
+    let scopes: String
+    let expires_at: Date
+}
+
 
 private func requireDatabase() throws {
     guard Environment.get("DATABASE_URL") != nil else {
@@ -350,31 +383,30 @@ private func requireDatabase() throws {
 
 private func currentUser(_ req: Request) async throws -> AuthUser {
     try requireDatabase()
-    guard let clientID = AuthConfig.workOSClientID,
-          let token = req.headers.bearerAuthorization?.token else {
-        throw Abort(.unauthorized, reason: "A WorkOS AuthKit bearer token is required")
+    guard let token = req.headers.bearerAuthorization?.token else {
+        throw Abort(.unauthorized, reason: "A bearer token is required")
     }
 
-    let subject: String
-    do {
-        subject = try await WorkOSJWTVerifier.shared.subject(from: token, clientID: clientID)
-    } catch {
-        // AuthPlatform-issued opaque device tokens are also accepted for API access.
-        let tokenHash = SecureValues.hash(token)
-        guard let stored = try await OAuthAccessToken.query(on: req.db)
-            .filter(\.$tokenHash == tokenHash).first(),
-              stored.expiresAt > Date(),
-              let user = try await AuthUser.find(stored.userID, on: req.db) else {
-            throw Abort(.unauthorized, reason: "Invalid or expired bearer token")
+    // WorkOS JWTs are accepted when WorkOS is configured. Telegram and device
+    // sessions are opaque AuthPlatform tokens and must remain usable without it.
+    if let clientID = AuthConfig.workOSClientID,
+       let subject = try? await WorkOSJWTVerifier.shared.subject(from: token, clientID: clientID) {
+        if let existing = try await AuthUser.query(on: req.db)
+            .filter(\.$workosSubject == subject).first() {
+            return existing
         }
+        let user = AuthUser(workosSubject: subject)
+        try await user.save(on: req.db)
         return user
     }
 
-    if let existing = try await AuthUser.query(on: req.db).filter(\.$workosSubject == subject).first() {
-        return existing
+    let tokenHash = SecureValues.hash(token)
+    guard let stored = try await OAuthAccessToken.query(on: req.db)
+        .filter(\.$tokenHash == tokenHash).first(),
+          stored.expiresAt > Date(),
+          let user = try await AuthUser.find(stored.userID, on: req.db) else {
+        throw Abort(.unauthorized, reason: "Invalid or expired bearer token")
     }
-    let user = AuthUser(workosSubject: subject)
-    try await user.save(on: req.db)
     return user
 }
 
@@ -628,6 +660,11 @@ func registerProductionAuthRoutes(_ app: Application) {
             .filter(\.$telegramUserID == challenge.telegramUserID).first(), existing.userID != user.id {
             throw Abort(.conflict, reason: "This Telegram account is already linked to another AuthPlatform account")
         }
+        if let oidcIdentity = try await TelegramOIDCIdentity.query(on: req.db)
+            .filter(\.$telegramSubject == challenge.telegramUserID).first(),
+           oidcIdentity.userID != user.id {
+            throw Abort(.conflict, reason: "Telegram sign-in is already associated with another AuthPlatform account; automatic account merging is disabled")
+        }
         let link = TelegramLink(telegramUserID: challenge.telegramUserID, userID: user.id!)
         try await link.save(on: req.db)
         challenge.claimedAt = Date()
@@ -647,6 +684,47 @@ func registerProductionAuthRoutes(_ app: Application) {
             guard let id = device.id else { return nil }
             return TelegramDeviceSummary(id: id, label: device.label, platform: device.platform, createdAt: device.createdAt)
         })
+    }
+
+
+    // The Telegram bot is an explicit secondary approval channel for device grants.
+    // The service secret authenticates the bot; the linked Telegram account identifies
+    // the user. A preview is required before the user sends /confirm.
+    app.get("v1", "telegram", "device-authorizations") { req async throws -> TelegramDeviceApprovalPreview in
+        try requireDatabase(); try requireTelegramService(req)
+        guard let telegramID = req.query[String.self, at: "telegram_user_id"],
+              let rawCode = req.query[String.self, at: "user_code"],
+              let link = try await TelegramLink.query(on: req.db)
+                .filter(\.$telegramUserID == telegramID).first() else {
+            throw Abort(.notFound, reason: "Telegram account is not linked")
+        }
+        let code = rawCode.uppercased().filter { $0.isLetter || $0.isNumber }
+        guard let grant = try await DeviceGrant.query(on: req.db)
+            .filter(\.$userCodeHash == SecureValues.hash(code)).first(),
+              grant.status == "pending", grant.expiresAt > Date() else {
+            throw Abort(.notFound, reason: "Device request is invalid, expired, or already handled")
+        }
+        _ = link
+        return TelegramDeviceApprovalPreview(client_id: grant.clientID, scopes: grant.scopes, expires_at: grant.expiresAt)
+    }
+
+    app.post("v1", "telegram", "device-approval") { req async throws -> HTTPStatus in
+        try requireDatabase(); try requireTelegramService(req)
+        let input = try req.content.decode(TelegramDeviceApprovalRequest.self)
+        guard let link = try await TelegramLink.query(on: req.db)
+            .filter(\.$telegramUserID == input.telegram_user_id).first() else {
+            throw Abort(.notFound, reason: "Telegram account is not linked")
+        }
+        let code = input.user_code.uppercased().filter { $0.isLetter || $0.isNumber }
+        guard let grant = try await DeviceGrant.query(on: req.db)
+            .filter(\.$userCodeHash == SecureValues.hash(code)).first(),
+              grant.status == "pending", grant.expiresAt > Date() else {
+            throw Abort(.badRequest, reason: "Device request is invalid, expired, or already handled")
+        }
+        grant.status = input.approve ? "approved" : "denied"
+        grant.userID = input.approve ? link.userID : nil
+        try await grant.save(on: req.db)
+        return .noContent
     }
 
     app.get("v1", "telegram", "status") { req async throws -> TelegramStatusResponse in

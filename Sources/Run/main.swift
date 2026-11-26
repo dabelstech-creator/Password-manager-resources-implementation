@@ -32,10 +32,13 @@ app.http.server.configuration.port = Environment.get("PORT").flatMap(Int.init) ?
 if let databaseURL = Environment.get("DATABASE_URL") {
     try app.databases.use(.postgres(url: databaseURL), as: .psql)
     app.migrations.add(CreateAuthPlatformTables())
+    app.migrations.add(MakeWorkOSSubjectNullable())
+    app.migrations.add(CreateTelegramOIDCIdentities())
     try app.autoMigrate()
 }
 
 registerProductionAuthRoutes(app)
+registerTelegramOIDCRoutes(app)
 
 app.get { _ async -> HealthResponse in
     HealthResponse(status: "ok", service: "AuthPlatform API")
@@ -46,9 +49,11 @@ app.get("health") { _ async -> HealthResponse in
 }
 
 app.get("ready") { _ async -> HealthResponse in
-    let ready = Environment.get("DATABASE_URL") != nil
-        && Environment.get("WORKOS_CLIENT_ID") != nil
+    let hasWorkOS = Environment.get("WORKOS_CLIENT_ID") != nil
         && Environment.get("WORKOS_REDIRECT_URI_IOS") != nil
+    let hasTelegram = Environment.get("TELEGRAM_LOGIN_CLIENT_ID") != nil
+    let ready = Environment.get("DATABASE_URL") != nil
+        && (hasWorkOS || hasTelegram)
         && Environment.get("AUTHPLATFORM_PUBLIC_BASE_URL") != nil
         && Environment.get("AUTHPLATFORM_DEVICE_VERIFICATION_URL") != nil
         && Environment.get("AUTHPLATFORM_OAUTH_CLIENT_ID") != nil
