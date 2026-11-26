@@ -31,7 +31,7 @@ Schema declaration and migration are separate steps: deploying `tgcloud/schema.j
 - `/deny CODE` — deny the reviewed request
 - `/oauth` — explain browser and Telegram approval
 
-Telegram-based device approval uses the authenticated AuthPlatform service endpoint. The bot derives the Telegram user ID from the incoming Telegram update, previews the request, and requires a separate `/confirm CODE` or `/deny CODE` action. AuthPlatform verifies the shared service secret, resolves the Telegram account link, and atomically transitions a pending grant. The bot never returns access tokens and must not collect passwords, recovery codes, API tokens, or one-time login credentials.
+Telegram-based device approval uses the authenticated AuthPlatform service endpoint. The bot derives the Telegram user ID from the incoming Telegram update, previews the request, and requires a separate `/confirm CODE` or `/deny CODE` action. AuthPlatform verifies the shared service secret, resolves the Telegram account link, and atomically transitions a pending grant. The bot accepts only the OAuth device user code explicitly shown by the AuthPlatform client; it never requests passwords, recovery codes, bearer tokens, or unrelated one-time login codes.
 
 ## AuthPlatform API configuration
 
