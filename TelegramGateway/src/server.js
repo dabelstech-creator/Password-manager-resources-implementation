@@ -38,13 +38,13 @@ export function createGatewayServer({ env = process.env, fetchImpl = fetch } = {
   const processedUpdates = new Set();
 
   async function sendMessage(chatID, text) {
-    const response = await fetchImpl(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    const response = await fetchImpl('https://api.telegram.org/bot' + botToken + '/sendMessage', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ chat_id: chatID, text }),
       signal: AbortSignal.timeout(8000),
     });
-    if (!response.ok) throw new Error(`Telegram API returned HTTP ${response.status}`);
+    if (!response.ok) throw new Error('Telegram API returned HTTP ' + response.status);
     const result = await response.json();
     if (!result.ok) throw new Error('Telegram sendMessage failed');
   }
@@ -78,11 +78,11 @@ export function createGatewayServer({ env = process.env, fetchImpl = fetch } = {
   });
 }
 
-if (import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).href) {
   const server = createGatewayServer();
   const port = Number(process.env.PORT || 10000);
   server.listen(port, '0.0.0.0', () => {
     // Do not log secrets, request bodies, or Telegram user data.
-    console.log(`Telegram Gateway listening on port ${port}`);
+    console.log('Telegram Gateway listening on port ' + port);
   });
 }

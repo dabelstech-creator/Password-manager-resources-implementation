@@ -17,7 +17,7 @@ test('/help is local and does not call external APIs', async () => {
   let calls = 0;
   const handle = createCommandHandler({ env, fetchImpl: async () => { calls++; throw new Error('unexpected'); } });
   const reply = await handle({ chat: { id: 1 }, from: { id: 2 }, text: '/help' });
-  assert.match(reply, /\\/status/);
+  assert.match(reply, /\/status/);
   assert.equal(calls, 0);
 });
 
@@ -31,7 +31,7 @@ test('/status authenticates to AuthPlatform', async () => {
     },
   });
   assert.equal(await handle({ chat: { id: 1 }, from: { id: 2 }, text: '/status' }),
-    'AuthPlatform API: ready\\nService: AuthPlatform');
+    'AuthPlatform API: ready\nService: AuthPlatform');
   assert.equal(request.url, 'https://auth.example.test/v1/telegram/status');
   assert.equal(request.options.headers['X-AuthPlatform-Telegram-Secret'], 'test-only-secret');
 });

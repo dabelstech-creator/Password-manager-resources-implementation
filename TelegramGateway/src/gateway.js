@@ -10,15 +10,15 @@ const HELP = [
   '/oauth — learn how to approve a device sign-in',
   '',
   'Security: never send passwords, recovery codes, API tokens, or one-time login codes to this bot.',
-].join('\\n');
+].join('\n');
 
 export function parseCommand(text = '') {
-  const token = text.trim().split(/\\s+/, 1)[0] ?? '';
+  const token = text.trim().split(/\s+/, 1)[0] ?? '';
   return token.split('@', 1)[0].toLowerCase();
 }
 
 function requiredConfig(env) {
-  const base = env.AUTHPLATFORM_API_URL?.trim().replace(/\\/+$/, '');
+  const base = env.AUTHPLATFORM_API_URL?.trim().replace(/\/+$/, '');
   const secret = env.TELEGRAM_BOT_SHARED_SECRET;
   if (!base || !secret) throw new Error('AuthPlatform integration is not configured');
   const url = new URL(base);
@@ -38,7 +38,7 @@ export function createCommandHandler({ env = process.env, fetchImpl = fetch } = 
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: AbortSignal.timeout(8000),
     });
-    if (!response.ok) throw new Error(`AuthPlatform returned HTTP ${response.status}`);
+    if (!response.ok) throw new Error('AuthPlatform returned HTTP ' + response.status);
     return response.status === 204 ? null : response.json();
   }
 
@@ -55,7 +55,7 @@ export function createCommandHandler({ env = process.env, fetchImpl = fetch } = 
       case '/status':
         try {
           const result = await apiRequest('/v1/telegram/status');
-          return `AuthPlatform API: ${result.status}\\nService: ${result.service}`;
+          return 'AuthPlatform API: ' + result.status + '\nService: ' + result.service;
         } catch {
           return 'AuthPlatform is unavailable or its service credentials are not configured.';
         }
@@ -68,24 +68,24 @@ export function createCommandHandler({ env = process.env, fetchImpl = fetch } = 
           });
           return [
             'Account-link verification',
-            `Your one-time link code is: ${result.code}`,
+            'Your one-time link code is: ' + result.code,
             '',
             'Sign in to AuthPlatform and enter this code in its Telegram linking screen.',
             'The code expires in 10 minutes. Never share your password or login token with this bot.',
-          ].join('\\n');
+          ].join('\n');
         } catch {
           return 'Could not create a link code. Check AuthPlatform availability and try again.';
         }
       case '/device':
         if (!telegramUserID) return 'Telegram user identity is unavailable for this message.';
         try {
-          const result = await apiRequest(`/v1/telegram/devices?telegram_user_id=${encodeURIComponent(telegramUserID)}`);
+          const result = await apiRequest('/v1/telegram/devices?telegram_user_id=' + encodeURIComponent(telegramUserID));
           if (!result.devices?.length) return 'No active devices are registered on the linked AuthPlatform account.';
           return [
             'Your active AuthPlatform devices:',
             ...result.devices.map((device, index) =>
-              `${index + 1}. ${device.label} — ${device.platform} (ID: ${device.id})`),
-          ].join('\\n');
+              (index + 1) + '. ' + device.label + ' — ' + device.platform + ' (ID: ' + device.id + ')'),
+          ].join('\n');
         } catch {
           return 'This Telegram account is not linked, or AuthPlatform is unavailable. Use /link first.';
         }
