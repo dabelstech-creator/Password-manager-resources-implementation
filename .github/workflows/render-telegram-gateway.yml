@@ -1,0 +1,28 @@
+name: Render Telegram Gateway checks
+
+on:
+  pull_request:
+    paths:
+      - "TelegramGateway/**"
+      - ".github/workflows/render-telegram-gateway.yml"
+  push:
+    branches:
+      - "feat/render-telegram-gateway"
+    paths:
+      - "TelegramGateway/**"
+      - ".github/workflows/render-telegram-gateway.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: TelegramGateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - run: npm run check
+      - run: docker build -t authplatform-telegram-gateway .
