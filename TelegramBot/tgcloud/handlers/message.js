@@ -16,10 +16,10 @@ const HELP = [
   '/deny CODE — deny a pending device request',
   '',
   'Security: never send passwords, recovery codes, API tokens, or one-time login codes to this bot.',
-].join('\\n');
+].join('\n');
 
 function configuration() {
-  const base = process.env.AUTHPLATFORM_API_URL?.replace(/\\/+$/, '');
+  const base = process.env.AUTHPLATFORM_API_URL?.replace(/\/+$/, '');
   const secret = process.env.AUTHPLATFORM_TELEGRAM_SHARED_SECRET;
   if (!base || !secret) throw new Error('Telegram API integration is not configured');
   return { base, secret };
@@ -63,7 +63,7 @@ async function rememberTelegramUser(message) {
 }
 
 async function responseFor(message) {
-  const parts = (message.text ?? '').trim().split(/\\s+/);
+  const parts = (message.text ?? '').trim().split(/\s+/);
   const command = parts[0].split('@')[0].toLowerCase();
   const userCode = parts[1] ?? '';
   const telegramUserID = message.from?.id == null ? null : String(message.from.id);
@@ -76,7 +76,7 @@ async function responseFor(message) {
     case '/status':
       try {
         const result = await apiRequest('/v1/telegram/status');
-        return `AuthPlatform API: ${result.status}\\nService: ${result.service}`;
+        return `AuthPlatform API: ${result.status}\nService: ${result.service}`;
       } catch {
         return 'AuthPlatform API is not reachable or Telegram service credentials are not configured.';
       }
@@ -93,7 +93,7 @@ async function responseFor(message) {
           '',
           'Open the AuthPlatform app or website, sign in to AuthPlatform, and enter this code in the Telegram linking screen.',
           'The code expires in 10 minutes. This bot will never ask for your password or login token.',
-        ].join('\\n');
+        ].join('\n');
       } catch {
         return 'Could not create a link code. Check the AuthPlatform API configuration and try again.';
       }
@@ -104,7 +104,7 @@ async function responseFor(message) {
         if (!result.devices?.length) return 'No active devices are registered on the linked AuthPlatform account.';
         return ['Your active AuthPlatform devices:', ...result.devices.map((device, index) =>
           `${index + 1}. ${device.label} — ${device.platform} (ID: ${device.id})`
-        )].join('\\n');
+        )].join('\n');
       } catch {
         return 'This Telegram account is not linked, or the AuthPlatform API is unavailable. Use /link first.';
       }
@@ -121,7 +121,7 @@ async function responseFor(message) {
           `Expires: ${new Date(result.expires_at).toISOString()}`,
           '',
           `If you recognize this request, send /confirm ${userCode}. Otherwise send /deny ${userCode}.`,
-        ].join('\\n');
+        ].join('\n');
       } catch {
         return 'No valid pending request was found, or this Telegram account is not linked. Check the code and try again.';
       }
