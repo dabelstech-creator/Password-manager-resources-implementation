@@ -424,7 +424,7 @@ private func requireBrowserOrigin(_ req: Request) throws {
     guard cookies.contains("authplatform_session=") else { return }
     guard let rawOrigin = req.headers.first(name: "Origin"),
           let origin = URL(string: rawOrigin),
-          let expected = AuthConfig.publicBaseURL.flatMap(URL.init(string:)),
+          let expected = AuthConfig.publicBaseURL.flatMap { URL(string: $0) },
           origin.scheme == "https", origin.host == expected.host,
           origin.port == expected.port else {
         throw Abort(.forbidden, reason: "Browser approval origin validation failed")
@@ -676,6 +676,7 @@ func registerProductionAuthRoutes(_ app: Application) {
     }
 
     app.get("device", "logout") { req async throws -> Response in
+        try requireDatabase()
         let cookieHeader = req.headers.first(name: "Cookie") ?? ""
         if let session = cookieHeader.split(separator: ";").compactMap({ part -> String? in
             let pair = part.trimmingCharacters(in: .whitespaces).split(separator: "=", maxSplits: 1)
