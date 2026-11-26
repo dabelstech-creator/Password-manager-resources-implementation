@@ -1,0 +1,47 @@
+name: Register WorkOS web redirect URI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  register-redirect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Register redirect URI
+        env:
+          WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${WORKOS_API_KEY:-}" ]]; then
+            echo "::error::Add WORKOS_API_KEY as a GitHub Actions repository secret before running this workflow."
+            exit 1
+          fi
+
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+          status="$(curl --silent --show-error \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --request POST 'https://api.workos.com/user_management/redirect_uris' \
+            --header 'Content-Type: application/json' \
+            --header "Authorization: Bearer ${WORKOS_API_KEY}" \
+            --data '{"uri":"https://password-manager-resources-implementation.onrender.com/device/callback"}')"
+
+          case "$status" in
+            200|201)
+              echo "WorkOS accepted the redirect URI registration."
+              ;;
+            422)
+              echo "::error::WorkOS returned 422. This may mean the URI already exists, but it has not been independently verified. Check the WorkOS Redirects settings before treating this as complete."
+              exit 1
+              ;;
+            *)
+              echo "::error::WorkOS redirect registration failed with HTTP $status."
+              cat "$response_file"
+              exit 1
+              ;;
+          esac
