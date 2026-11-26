@@ -10,38 +10,60 @@ jobs:
   register-redirect:
     runs-on: ubuntu-latest
     steps:
-      - name: Register redirect URI
+      - name: Register and verify redirect URI
         env:
           WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
+          REDIRECT_URI: https://password-manager-resources-implementation.onrender.com/device/callback
         shell: bash
         run: |
           set -euo pipefail
           if [[ -z "${WORKOS_API_KEY:-}" ]]; then
-            echo "::error::Add WORKOS_API_KEY as a GitHub Actions repository secret before running this workflow."
+            echo "::error::Missing repository secret WORKOS_API_KEY."
             exit 1
           fi
 
+          headers=(-H "Authorization: Bearer ${WORKOS_API_KEY}")
           response_file="$(mktemp)"
           trap 'rm -f "$response_file"' EXIT
+
+          verify_uri() {
+            curl --fail --silent --show-error \
+              "${headers[@]}" \
+              'https://api.workos.com/user_management/redirect_uris?limit=100' \
+              -o "$response_file"
+            python3 - "$response_file" "$REDIRECT_URI" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as f:
+              payload = json.load(f)
+          target = sys.argv[2]
+          found = any(item.get("uri") == target for item in payload.get("data", []))
+          raise SystemExit(0 if found else 1)
+          PY
+          }
+
+          if verify_uri; then
+            echo "Redirect URI already exists; verified."
+            exit 0
+          fi
+
           status="$(curl --silent --show-error \
             --output "$response_file" \
             --write-out '%{http_code}' \
             --request POST 'https://api.workos.com/user_management/redirect_uris' \
             --header 'Content-Type: application/json' \
-            --header "Authorization: Bearer ${WORKOS_API_KEY}" \
-            --data '{"uri":"https://password-manager-resources-implementation.onrender.com/device/callback"}')"
+            "${headers[@]}" \
+            --data "{\"uri\":\"$REDIRECT_URI\"}")"
 
-          case "$status" in
-            200|201)
-              echo "WorkOS accepted the redirect URI registration."
-              ;;
-            422)
-              echo "::error::WorkOS returned 422. This may mean the URI already exists, but it has not been independently verified. Check the WorkOS Redirects settings before treating this as complete."
-              exit 1
-              ;;
-            *)
-              echo "::error::WorkOS redirect registration failed with HTTP $status."
-              cat "$response_file"
-              exit 1
-              ;;
-          esac
+          if [[ "$status" != "200" && "$status" != "201" && "$status" != "422" ]]; then
+            echo "::error::WorkOS redirect registration failed with HTTP $status."
+            cat "$response_file"
+            exit 1
+          fi
+
+          if ! verify_uri; then
+            echo "::error::WorkOS did not return the exact redirect URI in its redirect list after registration."
+            cat "$response_file"
+            exit 1
+          fi
+
+          echo "Redirect URI is registered and independently verified."
