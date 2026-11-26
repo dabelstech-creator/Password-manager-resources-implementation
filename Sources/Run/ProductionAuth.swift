@@ -609,7 +609,7 @@ func registerProductionAuthRoutes(_ app: Application) {
         let tokens = try JSONDecoder().decode(WorkOSAuthResponse.self, from: data)
         let subject = try await WorkOSJWTVerifier.shared.subject(from: tokens.access_token, clientID: clientID)
         let user: AuthUser
-        if let existing = try await AuthUser.query(on: req.db).filter(\\.$workosSubject == subject).first() {
+        if let existing = try await AuthUser.query(on: req.db).filter(\.$workosSubject == subject).first() {
             user = existing
         } else {
             user = AuthUser(workosSubject: subject)
@@ -654,7 +654,7 @@ func registerProductionAuthRoutes(_ app: Application) {
         </script></body></html>
         """
         let response = Response(status: .ok)
-        response.headers.contentType = .html
+        response.headers.replaceOrAdd(name: "Content-Type", value: "text/html; charset=utf-8")
         response.body = .init(string: html)
         return response
     }
@@ -711,7 +711,7 @@ func registerProductionAuthRoutes(_ app: Application) {
         query.set(\.$userID, to: input.approve ? user.id : nil)
         try await query.update()
         guard let resultingGrant = try await DeviceGrant.query(on: req.db)
-            .filter(\\.$userCodeHash == SecureValues.hash(code)).first(),
+            .filter(\.$userCodeHash == SecureValues.hash(code)).first(),
               resultingGrant.status == (input.approve ? "approved" : "denied"),
               resultingGrant.userID == (input.approve ? user.id : nil) else {
             throw Abort(.conflict, reason: "Device request was already handled by another approval attempt")
@@ -866,7 +866,7 @@ func registerProductionAuthRoutes(_ app: Application) {
         query.set(\.$userID, to: input.approve ? link.userID : nil)
         try await query.update()
         guard let resultingGrant = try await DeviceGrant.query(on: req.db)
-            .filter(\\.$userCodeHash == SecureValues.hash(code)).first(),
+            .filter(\.$userCodeHash == SecureValues.hash(code)).first(),
               resultingGrant.status == (input.approve ? "approved" : "denied"),
               resultingGrant.userID == (input.approve ? link.userID : nil) else {
             throw Abort(.conflict, reason: "Device request was already handled by another approval attempt")
