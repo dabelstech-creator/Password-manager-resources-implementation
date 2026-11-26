@@ -2,6 +2,9 @@ name: Register WorkOS web redirect URI
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/browser-and-telegram-device-approval
 
 permissions:
   contents: read
