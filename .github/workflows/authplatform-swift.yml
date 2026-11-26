@@ -6,10 +6,12 @@ on:
       - "Package.swift"
       - "Sources/Run/**"
       - "Tests/**"
+      - "scripts/device-approval-concurrency-test.py"
       - ".github/workflows/authplatform-swift.yml"
   push:
     branches:
       - "feat/workos-device-oauth-backend"
+      - "feat/browser-and-telegram-device-approval"
     paths:
       - "Package.swift"
       - "Sources/Run/**"
@@ -28,3 +30,5 @@ jobs:
         run: swift package resolve
       - name: Build AuthPlatform
         run: swift build -c release --product Run
+      - name: Validate staging integration test harness
+        run: python3 -m py_compile scripts/device-approval-concurrency-test.py
