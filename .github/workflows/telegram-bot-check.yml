@@ -9,6 +9,7 @@ on:
     branches:
       - main
       - "feat/telegram-serverless-moredesabot"
+      - "feat/telegram-serverless-persistence"
     paths:
       - "TelegramBot/**"
       - ".github/workflows/telegram-bot-check.yml"
