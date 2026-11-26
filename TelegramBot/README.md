@@ -26,9 +26,12 @@ Schema declaration and migration are separate steps: deploying `tgcloud/schema.j
 - `/status` — check the AuthPlatform API integration
 - `/link` — create a short-lived account-link challenge
 - `/device` — list devices on the linked AuthPlatform account
-- `/oauth` — report the current device-approval readiness
+- `/approve CODE` — preview a pending device sign-in request
+- `/confirm CODE` — approve the reviewed request
+- `/deny CODE` — deny the reviewed request
+- `/oauth` — explain browser and Telegram approval
 
-Telegram-based device approval is intentionally disabled until the API exposes an authenticated approval endpoint and the browser approval experience is complete. The bot must not claim to inspect or approve device grants. It never returns access tokens and must not collect passwords, recovery codes, API tokens, or one-time login credentials.
+Telegram-based device approval uses the authenticated AuthPlatform service endpoint. The bot derives the Telegram user ID from the incoming Telegram update, previews the request, and requires a separate `/confirm CODE` or `/deny CODE` action. AuthPlatform verifies the shared service secret, resolves the Telegram account link, and atomically transitions a pending grant. The bot never returns access tokens and must not collect passwords, recovery codes, API tokens, or one-time login credentials.
 
 ## AuthPlatform API configuration
 
@@ -76,10 +79,12 @@ Review the diff and confirm the project is linked to the intended bot before `pu
 ## Security and production boundary
 
 - Bot-originated API requests require the shared service secret and a previously linked Telegram account.
-- Telegram device approval is not exposed by the bot until its API endpoints and authorization checks are implemented and tested.
+- Telegram approval requires the exact high-entropy shared secret and a Telegram account already linked to the AuthPlatform user.
+- Device approval codes are short-lived and single-use; users must never approve a request they did not initiate.
 - The bot does not create an AuthPlatform session or expose bearer tokens.
 - The API's Telegram OIDC endpoint verifies signed ID tokens against Telegram's published JWKS, issuer, audience, and time claims. The full BotFather OIDC registration and real client credentials still need to be configured.
 - The KMP module is an integration scaffold; native Android/iOS secure-key storage and host-app callback wiring remain incomplete.
-- Browser-based approval UI and end-to-end staging verification remain production gates.
+- Browser approval is served at `/device` and uses WorkOS AuthKit PKCE. Register the exact callback `https://password-manager-resources-implementation.onrender.com/device/callback` in WorkOS and set `WORKOS_REDIRECT_URI_WEB` on AuthPlatform.
+- End-to-end staging verification, native secure-key storage, and mobile callback wiring remain production gates.
 
 Never deploy this bot against production until the API, PostgreSQL migrations, Serverless SQLite migration, OIDC client registration, mobile callbacks, browser approval, and security tests have been verified in staging.
