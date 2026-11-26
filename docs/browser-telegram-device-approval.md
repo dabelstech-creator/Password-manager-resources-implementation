@@ -16,7 +16,7 @@ Configure the WorkOS application with this exact redirect URI:
 
 `https://password-manager-resources-implementation.onrender.com/device/callback`
 
-Set `WORKOS_REDIRECT_URI_WEB` to that value in the AuthPlatform Render service. If the variable is omitted, AuthPlatform derives the same callback from `AUTHPLATFORM_PUBLIC_BASE_URL`. Keep the existing iOS callback `WORKOS_REDIRECT_URI_IOS` separate.
+Set `WORKOS_REDIRECT_URI_WEB` to that value in the AuthPlatform Render service. If the variable is omitted, AuthPlatform derives the same callback from `AUTHPLATFORM_PUBLIC_BASE_URL`. Set `AUTHPLATFORM_DEVICE_VERIFICATION_URL` to `https://password-manager-resources-implementation.onrender.com/device` so OAuth clients open this page. Keep the existing iOS callback `WORKOS_REDIRECT_URI_IOS` separate.
 
 ## Telegram service approval
 
