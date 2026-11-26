@@ -65,26 +65,49 @@ def main():
     token_payload = {"grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                      "device_code": device_code, "client_id": CLIENT}
     def poll(_):
-        return request("/oauth/token", "POST", token_payload)[0]
+        return request("/oauth/token", "POST", token_payload)
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
         token_results = list(pool.map(poll, range(12)))
-    assert token_results.count(200) <= 1, token_results
-    assert any(code in (200, 400) for code in token_results), token_results
+    token_statuses = [status for status, _ in token_results]
+    assert token_statuses.count(200) <= 1, token_statuses
+    if token_statuses.count(200) == 0:
+        assert any((body or {}).get("error") == "access_denied" for _, body in token_results), token_results
 
-    # Invalid service credentials must never pass Telegram device approval.
+    # Exercise the authenticated Telegram path with a real linked test account.
     secret = os.environ.get("TELEGRAM_BOT_SHARED_SECRET")
     telegram_id = os.environ.get("TELEGRAM_USER_ID")
+    telegram_approval_passed = False
+    invalid_secret_rejected = False
     if secret and telegram_id:
+        telegram_headers = {"X-AuthPlatform-Telegram-Secret": secret}
+        status, telegram_grant = request("/oauth/device_authorization", "POST",
+            {"client_id": CLIENT, "scope": "devices:read"}, auth)
+        assert status == 200, (status, telegram_grant)
+        telegram_code = telegram_grant["user_code"]
+        preview_path = "/v1/telegram/device-authorizations?telegram_user_id=" + telegram_id + "&user_code=" + telegram_code
+        status, preview = request(preview_path, headers=telegram_headers)
+        assert status == 200 and preview["client_id"] == CLIENT, (status, preview)
         status, _ = request("/v1/telegram/device-approval", "POST",
-            {"telegram_user_id": telegram_id, "user_code": code, "approve": True},
+            {"telegram_user_id": telegram_id, "user_code": telegram_code, "approve": True},
             {"X-AuthPlatform-Telegram-Secret": "invalid-test-secret"})
         assert status == 401, ("Telegram endpoint accepted an invalid service secret", status)
+        invalid_secret_rejected = True
+        status, _ = request("/v1/telegram/device-approval", "POST",
+            {"telegram_user_id": telegram_id, "user_code": telegram_code, "approve": True},
+            telegram_headers)
+        assert status == 204, ("Telegram approval failed", status)
+        status, token_response = request("/oauth/token", "POST",
+            {"grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+             "device_code": telegram_grant["device_code"], "client_id": CLIENT})
+        assert status == 200 and token_response.get("access_token"), (status, token_response)
+        telegram_approval_passed = True
 
     print(json.dumps({"device_grant_created": True,
                       "approval_http_statuses": {str(s): results.count(s) for s in set(results)},
-                      "token_poll_http_statuses": {str(s): token_results.count(s) for s in set(token_results)},
-                      "max_tokens_issued": token_results.count(200),
-                      "telegram_invalid_secret_rejected": bool(secret and telegram_id)}, indent=2))
+                      "token_poll_http_statuses": {str(s): token_statuses.count(s) for s in set(token_statuses)},
+                      "max_tokens_issued": token_statuses.count(200),
+                      "telegram_valid_approval_passed": telegram_approval_passed,
+                      "telegram_invalid_secret_rejected": invalid_secret_rejected}, indent=2))
 
 
 if __name__ == "__main__":
