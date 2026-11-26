@@ -419,6 +419,18 @@ private func currentUser(_ req: Request) async throws -> AuthUser {
     return user
 }
 
+private func requireBrowserOrigin(_ req: Request) throws {
+    let cookies = req.headers.first(name: "Cookie") ?? ""
+    guard cookies.contains("authplatform_session=") else { return }
+    guard let rawOrigin = req.headers.first(name: "Origin"),
+          let origin = URL(string: rawOrigin),
+          let expected = AuthConfig.publicBaseURL.flatMap(URL.init(string:)),
+          origin.scheme == "https", origin.host == expected.host,
+          origin.port == expected.port else {
+        throw Abort(.forbidden, reason: "Browser approval origin validation failed")
+    }
+}
+
 private func requireTelegramService(_ req: Request) throws {
     guard let expected = AuthConfig.telegramSecret,
           let supplied = req.headers.first(name: "X-AuthPlatform-Telegram-Secret"),
@@ -663,7 +675,16 @@ func registerProductionAuthRoutes(_ app: Application) {
         return response
     }
 
-    app.get("device", "logout") { _ async -> Response in
+    app.get("device", "logout") { req async throws -> Response in
+        let cookieHeader = req.headers.first(name: "Cookie") ?? ""
+        if let session = cookieHeader.split(separator: ";").compactMap({ part -> String? in
+            let pair = part.trimmingCharacters(in: .whitespaces).split(separator: "=", maxSplits: 1)
+            return pair.count == 2 && pair[0] == "authplatform_session" ? String(pair[1]) : nil
+        }).first,
+           let stored = try await OAuthAccessToken.query(on: req.db)
+            .filter(\.$tokenHash == SecureValues.hash(session)).first() {
+            try await stored.delete(on: req.db)
+        }
         let response = Response(status: .seeOther)
         response.headers.replaceOrAdd(name: "Location", value: "/device/login")
         response.headers.add(name: "Set-Cookie", value: "authplatform_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax")
@@ -700,6 +721,7 @@ func registerProductionAuthRoutes(_ app: Application) {
     }
 
     app.post("device", "approve") { req async throws -> HTTPStatus in
+        try requireBrowserOrigin(req)
         let user = try await currentUser(req)
         let input = try req.content.decode(DeviceApprovalRequest.self)
         let code = input.user_code.uppercased().filter { $0.isLetter || $0.isNumber }
