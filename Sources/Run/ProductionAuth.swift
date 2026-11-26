@@ -14,6 +14,10 @@ import FoundationNetworking
 enum AuthConfig {
     static var workOSClientID: String? { Environment.get("WORKOS_CLIENT_ID") }
     static var iosRedirectURI: String? { Environment.get("WORKOS_REDIRECT_URI_IOS") }
+    static var webRedirectURI: String? {
+        Environment.get("WORKOS_REDIRECT_URI_WEB")
+            ?? publicBaseURL.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/device/callback" }
+    }
     static var publicBaseURL: String? { Environment.get("AUTHPLATFORM_PUBLIC_BASE_URL") }
     static var deviceVerificationURL: String? { Environment.get("AUTHPLATFORM_DEVICE_VERIFICATION_URL") }
     static var telegramSecret: String? { Environment.get("TELEGRAM_BOT_SHARED_SECRET") }
@@ -383,8 +387,13 @@ private func requireDatabase() throws {
 
 private func currentUser(_ req: Request) async throws -> AuthUser {
     try requireDatabase()
-    guard let token = req.headers.bearerAuthorization?.token else {
-        throw Abort(.unauthorized, reason: "A bearer token is required")
+    let cookieHeader = req.headers.first(name: "Cookie") ?? ""
+    let cookieToken = cookieHeader.split(separator: ";").compactMap { part -> String? in
+        let pair = part.trimmingCharacters(in: .whitespaces).split(separator: "=", maxSplits: 1)
+        return pair.count == 2 && pair[0] == "authplatform_session" ? String(pair[1]) : nil
+    }.first
+    guard let token = req.headers.bearerAuthorization?.token ?? cookieToken else {
+        throw Abort(.unauthorized, reason: "A bearer token or browser session is required")
     }
 
     // WorkOS JWTs are accepted when WorkOS is configured. Telegram and device
@@ -538,6 +547,123 @@ func registerProductionAuthRoutes(_ app: Application) {
             response_types_supported: [],
             token_endpoint_auth_methods_supported: ["none"]
         )
+    }
+
+    // Browser device-approval flow: WorkOS AuthKit authorization-code + PKCE.
+    app.get("device", "login") { req async throws -> Response in
+        guard let clientID = AuthConfig.workOSClientID,
+              let redirectURI = AuthConfig.webRedirectURI,
+              let authorizeBase = URL(string: "https://api.workos.com/user_management/authorize") else {
+            throw Abort(.serviceUnavailable, reason: "WorkOS browser redirect configuration is incomplete")
+        }
+        let state = SecureValues.base64URL(SecureValues.random(32))
+        let verifier = SecureValues.base64URL(SecureValues.random(48))
+        let challenge = SecureValues.base64URL(Data(SHA256.hash(data: Data(verifier.utf8))))
+        var components = URLComponents(url: authorizeBase, resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "provider", value: "authkit"),
+            URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "code_challenge", value: challenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256")
+        ]
+        let response = Response(status: .seeOther)
+        response.headers.replaceOrAdd(name: "Location", value: components.url!.absoluteString)
+        response.headers.add(name: "Set-Cookie", value: "authplatform_oauth_state=\(state); Path=/device; Max-Age=600; Secure; HttpOnly; SameSite=Lax")
+        response.headers.add(name: "Set-Cookie", value: "authplatform_oauth_verifier=\(verifier); Path=/device; Max-Age=600; Secure; HttpOnly; SameSite=Lax")
+        return response
+    }
+
+    app.get("device", "callback") { req async throws -> Response in
+        try requireDatabase()
+        guard let clientID = AuthConfig.workOSClientID,
+              let redirectURI = AuthConfig.webRedirectURI,
+              let code = req.query[String.self, at: "code"],
+              let returnedState = req.query[String.self, at: "state"] else {
+            throw Abort(.badRequest, reason: "WorkOS callback is missing required parameters")
+        }
+        let cookies = Dictionary(uniqueKeysWithValues: (req.headers.first(name: "Cookie") ?? "")
+            .split(separator: ";").compactMap { item -> (String, String)? in
+                let pair = item.trimmingCharacters(in: .whitespaces).split(separator: "=", maxSplits: 1)
+                guard pair.count == 2 else { return nil }
+                return (String(pair[0]), String(pair[1]))
+            })
+        guard let expectedState = cookies["authplatform_oauth_state"],
+              SecureValues.constantTimeEqual(expectedState, returnedState),
+              let verifier = cookies["authplatform_oauth_verifier"] else {
+            throw Abort(.unauthorized, reason: "Browser sign-in state validation failed")
+        }
+        var exchange = URLRequest(url: URL(string: "https://api.workos.com/user_management/authenticate")!)
+        exchange.httpMethod = "POST"
+        exchange.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        exchange.httpBody = try JSONSerialization.data(withJSONObject: [
+            "client_id": clientID, "grant_type": "authorization_code",
+            "code": code, "code_verifier": verifier, "redirect_uri": redirectURI
+        ])
+        let (data, upstreamResponse) = try await URLSession.shared.data(for: exchange)
+        guard (upstreamResponse as? HTTPURLResponse)?.statusCode == 200 else {
+            throw Abort(.unauthorized, reason: "WorkOS browser authorization exchange failed")
+        }
+        let tokens = try JSONDecoder().decode(WorkOSAuthResponse.self, from: data)
+        let subject = try await WorkOSJWTVerifier.shared.subject(from: tokens.access_token, clientID: clientID)
+        let user: AuthUser
+        if let existing = try await AuthUser.query(on: req.db).filter(\\.$workosSubject == subject).first() {
+            user = existing
+        } else {
+            user = AuthUser(workosSubject: subject)
+            try await user.save(on: req.db)
+        }
+        let session = SecureValues.base64URL(SecureValues.random(40))
+        try await OAuthAccessToken(authorizationID: UUID(), userID: user.id!, token: session).save(on: req.db)
+        let response = Response(status: .seeOther)
+        response.headers.replaceOrAdd(name: "Location", value: "/device")
+        response.headers.add(name: "Set-Cookie", value: "authplatform_session=\(session); Path=/; Max-Age=3600; Secure; HttpOnly; SameSite=Lax")
+        response.headers.add(name: "Set-Cookie", value: "authplatform_oauth_state=; Path=/device; Max-Age=0; Secure; HttpOnly; SameSite=Lax")
+        response.headers.add(name: "Set-Cookie", value: "authplatform_oauth_verifier=; Path=/device; Max-Age=0; Secure; HttpOnly; SameSite=Lax")
+        return response
+    }
+
+    app.get("device") { req async throws -> Response in
+        guard req.headers.first(name: "Cookie")?.contains("authplatform_session=") == true else {
+            let response = Response(status: .seeOther)
+            response.headers.replaceOrAdd(name: "Location", value: "/device/login")
+            return response
+        }
+        _ = try await currentUser(req)
+        let html = """
+        <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Approve device · AuthPlatform</title><style>
+        body{font:16px system-ui;background:#f5f7fb;color:#172033;margin:0;display:grid;min-height:100vh;place-items:center}
+        main{background:white;width:min(92vw,440px);padding:32px;border-radius:18px;box-shadow:0 12px 40px #18233a18}
+        h1{font-size:25px;margin:0 0 8px}p{color:#536078;line-height:1.5}
+        input{box-sizing:border-box;width:100%;padding:14px;border:1px solid #cbd3e1;border-radius:9px;font:inherit;letter-spacing:3px;text-transform:uppercase}
+        button{padding:12px 18px;border:0;border-radius:9px;font:600 15px system-ui;cursor:pointer;margin:12px 8px 0 0}
+        .yes{background:#165dca;color:white}.no{background:#e9edf4;color:#243047}#result{min-height:24px}
+        </style></head><body><main><h1>Approve a device</h1>
+        <p>Enter the eight-character code shown on the device you are trying to connect. Only approve a request you initiated.</p>
+        <form id="approval"><label for="code">Device code</label><p><input id="code" name="user_code" minlength="8" maxlength="8" autocomplete="one-time-code" required></p>
+        <button class="yes" type="submit" data-approve="true">Approve device</button><button class="no" type="submit" data-approve="false">Deny</button></form>
+        <p id="result" role="status"></p><p><a href="/device/logout">Sign out</a></p></main>
+        <script>
+        const form=document.querySelector('#approval'),result=document.querySelector('#result');
+        form.addEventListener('submit',async e=>{e.preventDefault();const approve=e.submitter.dataset.approve==='true';
+        result.textContent='Submitting…';try{const r=await fetch('/device/approve',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_code:form.user_code.value,approve})});
+        result.textContent=r.ok?(approve?'Device approved. You can return to your device.':'Request denied.'):'This code is invalid, expired, or already handled.';}catch(_){result.textContent='Unable to contact AuthPlatform. Try again.';}});
+        </script></body></html>
+        """
+        let response = Response(status: .ok)
+        response.headers.contentType = .html
+        response.body = .init(string: html)
+        return response
+    }
+
+    app.get("device", "logout") { _ async -> Response in
+        let response = Response(status: .seeOther)
+        response.headers.replaceOrAdd(name: "Location", value: "/device/login")
+        response.headers.add(name: "Set-Cookie", value: "authplatform_session=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax")
+        return response
     }
 
     app.post("oauth", "device_authorization") { req async throws -> DeviceAuthorizationResponse in
