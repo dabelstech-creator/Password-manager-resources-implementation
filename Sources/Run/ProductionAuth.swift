@@ -584,12 +584,13 @@ func registerProductionAuthRoutes(_ app: Application) {
               let returnedState = req.query[String.self, at: "state"] else {
             throw Abort(.badRequest, reason: "WorkOS callback is missing required parameters")
         }
-        let cookies = Dictionary(uniqueKeysWithValues: (req.headers.first(name: "Cookie") ?? "")
-            .split(separator: ";").compactMap { item -> (String, String)? in
-                let pair = item.trimmingCharacters(in: .whitespaces).split(separator: "=", maxSplits: 1)
-                guard pair.count == 2 else { return nil }
-                return (String(pair[0]), String(pair[1]))
-            })
+        var cookies: [String: String] = [:]
+        for item in (req.headers.first(name: "Cookie") ?? "").split(separator: ";") {
+            let pair = item.trimmingCharacters(in: .whitespaces).split(separator: "=", maxSplits: 1)
+            if pair.count == 2, cookies[String(pair[0])] == nil {
+                cookies[String(pair[0])] = String(pair[1])
+            }
+        }
         guard let expectedState = cookies["authplatform_oauth_state"],
               SecureValues.constantTimeEqual(expectedState, returnedState),
               let verifier = cookies["authplatform_oauth_verifier"] else {
@@ -655,6 +656,9 @@ func registerProductionAuthRoutes(_ app: Application) {
         """
         let response = Response(status: .ok)
         response.headers.replaceOrAdd(name: "Content-Type", value: "text/html; charset=utf-8")
+        response.headers.replaceOrAdd(name: "Cache-Control", value: "no-store")
+        response.headers.replaceOrAdd(name: "X-Content-Type-Options", value: "nosniff")
+        response.headers.replaceOrAdd(name: "Referrer-Policy", value: "no-referrer")
         response.body = .init(string: html)
         return response
     }
