@@ -121,7 +121,7 @@ async function responseFor(message) {
           `Expires: ${result.expires_at}`,
           '',
           'If and only if you initiated this request, send /confirm CODE. Otherwise send /deny CODE.',
-        ].join('\\n');
+        ].join('\n');
       } catch {
         return 'Could not find a pending request for this code, or this Telegram account is not linked. Check the code and use /link if needed.';
       }
