@@ -26,12 +26,9 @@ Schema declaration and migration are separate steps: deploying `tgcloud/schema.j
 - `/status` — check the AuthPlatform API integration
 - `/link` — create a short-lived account-link challenge
 - `/device` — list devices on the linked AuthPlatform account
-- `/oauth` — explain device sign-in approval
-- `/approve CODE` — inspect a pending device authorization (client and scopes)
-- `/confirm CODE` — approve the inspected request
-- `/deny CODE` — reject a pending request
+- `/oauth` — report the current device-approval readiness
 
-The approval flow is two-step: users inspect the request before confirming it. The bot never returns access tokens and must not collect passwords, recovery codes, API tokens, or one-time login credentials.
+Telegram-based device approval is intentionally disabled until the API exposes an authenticated approval endpoint and the browser approval experience is complete. The bot must not claim to inspect or approve device grants. It never returns access tokens and must not collect passwords, recovery codes, API tokens, or one-time login credentials.
 
 ## AuthPlatform API configuration
 
@@ -79,7 +76,7 @@ Review the diff and confirm the project is linked to the intended bot before `pu
 ## Security and production boundary
 
 - Bot-originated API requests require the shared service secret and a previously linked Telegram account.
-- Device approvals require a pending, unexpired user code and an explicit confirmation or denial.
+- Telegram device approval is not exposed by the bot until its API endpoints and authorization checks are implemented and tested.
 - The bot does not create an AuthPlatform session or expose bearer tokens.
 - The API's Telegram OIDC endpoint verifies signed ID tokens against Telegram's published JWKS, issuer, audience, and time claims. The full BotFather OIDC registration and real client credentials still need to be configured.
 - The KMP module is an integration scaffold; native Android/iOS secure-key storage and host-app callback wiring remain incomplete.
