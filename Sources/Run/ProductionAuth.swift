@@ -638,6 +638,21 @@ func registerProductionAuthRoutes(_ app: Application) {
         return response
     }
 
+    app.get("device", "preview") { req async throws -> TelegramDeviceApprovalPreview in
+        _ = try await currentUser(req)
+        guard let rawCode = req.query[String.self, at: "user_code"] else {
+            throw Abort(.badRequest, reason: "Device user code is required")
+        }
+        let code = rawCode.uppercased().filter { $0.isLetter || $0.isNumber }
+        guard code.count == 8,
+              let grant = try await DeviceGrant.query(on: req.db)
+                .filter(\\.$userCodeHash == SecureValues.hash(code)).first(),
+              grant.status == "pending", grant.expiresAt > Date() else {
+            throw Abort(.notFound, reason: "Device request is invalid, expired, or already handled")
+        }
+        return TelegramDeviceApprovalPreview(client_id: grant.clientID, scopes: grant.scopes, expires_at: grant.expiresAt)
+    }
+
     app.get("device") { req async throws -> Response in
         guard req.headers.first(name: "Cookie")?.contains("authplatform_session=") == true else {
             let response = Response(status: .seeOther)
@@ -656,14 +671,19 @@ func registerProductionAuthRoutes(_ app: Application) {
         .yes{background:#165dca;color:white}.no{background:#e9edf4;color:#243047}#result{min-height:24px}
         </style></head><body><main><h1>Approve a device</h1>
         <p>Enter the eight-character code shown on the device you are trying to connect. Only approve a request you initiated.</p>
-        <form id="approval"><label for="code">Device code</label><p><input id="code" name="user_code" minlength="8" maxlength="8" autocomplete="one-time-code" required></p>
+        <form id="approval"><label for="code">Device code</label><p><input id="code" name="user_code" minlength="8" maxlength="8" autocomplete="one-time-code" required></p><p id="details" role="status">Enter your code to review the device and requested permissions.</p>
         <button class="yes" type="submit" data-approve="true">Approve device</button><button class="no" type="submit" data-approve="false">Deny</button></form>
         <p id="result" role="status"></p><p><a href="/device/logout">Sign out</a></p></main>
         <script>
-        const form=document.querySelector('#approval'),result=document.querySelector('#result');
-        form.addEventListener('submit',async e=>{e.preventDefault();const approve=e.submitter.dataset.approve==='true';
+        const form=document.querySelector('#approval'),result=document.querySelector('#result'),details=document.querySelector('#details'),codeInput=document.querySelector('#code');
+        let previewReady=false;
+        codeInput.addEventListener('change',async()=>{previewReady=false;details.textContent='Checking request…';const code=codeInput.value.trim().toUpperCase();
+        try{const r=await fetch('/device/preview?user_code='+encodeURIComponent(code),{credentials:'same-origin'});if(!r.ok)throw new Error('not found');
+        const data=await r.json();details.textContent='Client: '+data.client_id+' | Scopes: '+(data.scopes||'(none)')+' | Expires: '+data.expires_at;previewReady=true;
+        }catch(_){details.textContent='No valid pending request found for this code.';}});
+        form.addEventListener('submit',async e=>{e.preventDefault();if(!previewReady){result.textContent='Review a valid request before deciding.';return;}const approve=e.submitter.dataset.approve==='true';
         result.textContent='Submitting…';try{const r=await fetch('/device/approve',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_code:form.user_code.value,approve})});
-        result.textContent=r.ok?(approve?'Device approved. You can return to your device.':'Request denied.'):'This code is invalid, expired, or already handled.';}catch(_){result.textContent='Unable to contact AuthPlatform. Try again.';}});
+        result.textContent=r.ok?(approve?'Device approved. You can return to your device.':'Request denied.'):'This code is invalid, expired, or already handled.';previewReady=false;}catch(_){result.textContent='Unable to contact AuthPlatform. Try again.';}});
         </script></body></html>
         """
         let response = Response(status: .ok)
